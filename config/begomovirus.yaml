@@ -1,0 +1,8 @@
+# Example preset: begomoviruses. Merge into your project config.
+rca: {min_period: 600, max_period: 3500}
+diversity: {cluster_identity: 0.91, cluster_min_cover: 0.8}   # ICTV species threshold
+genbank:
+  origin_motif: TAATATTAC   # nick site TAATATT^AC; numbering starts at "AC"
+  origin_offset: 7
+  min_orf_aa: 60
+  metadata: {host: Manihot esculenta, country: "TO BE FILLED", collection_date: "TO BE FILLED"}

@@ -1,0 +1,15 @@
+name: plantvirome
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python>=3.10
+  - pip
+  - minimap2
+  - chopper
+  - porechop_abi
+  - tidehunter
+  - diamond
+  - taxonkit
+  - pip:
+      - -e .

@@ -1,0 +1,8 @@
+# Apptainer/Singularity: build from the Docker image (build it first, see README).
+#   docker build -f containers/Dockerfile -t plantvirome .
+#   apptainer build plantvirome.sif containers/plantvirome.def
+Bootstrap: docker-daemon
+From: plantvirome:latest
+
+%runscript
+    exec plantvirome "$@"

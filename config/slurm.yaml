@@ -1,0 +1,12 @@
+# Merge into your project config under the `slurm:` key.
+slurm:
+  partition: null
+  account: null
+  setup:
+    - "source ~/miniconda3/etc/profile.d/conda.sh"
+    - "conda activate plantvirome"
+  default: {cpus: 4, mem_gb: 16, time: "04:00:00"}
+  steps:
+    rca: {cpus: 8, mem_gb: 16, time: "08:00:00"}
+    assemble: {cpus: 4, mem_gb: 8, time: "04:00:00"}
+    classify: {cpus: 16, mem_gb: 64, time: "12:00:00"}

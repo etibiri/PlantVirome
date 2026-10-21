@@ -1,0 +1,191 @@
+# plantvirome
+
+Virus-agnostic pipeline for **RCA (rolling-circle amplification) + Nanopore** plant virome data.
+From basecalled reads to circular virus genomes, taxonomy, diversity indices and
+GenBank-ready files. Nothing in the code is tied to a host or a virus: hosts, databases and
+virus-specific parameters (genome size range, origin motif, species threshold) live in YAML.
+
+Pipeline (one subcommand per step, each resumable through a `.done` marker):
+
+```
+qc → hostdeplete → rca → assemble → classify → abundance → genbank     (per sample)
+                                               └→ diversity            (once, all samples)
+                                    variety (optional, host organelle markers)
+```
+
+## Install
+
+Requires Linux or macOS. External tools come from bioconda, the Python package from pip.
+
+```bash
+mamba env create -f environment.yml      # tools + `pip install -e .`
+mamba activate plantvirome
+pytest                                   # unit + end-to-end tests on simulated data (~2 min)
+```
+
+Container (Docker; Apptainer for the HPC):
+
+```bash
+docker build -f containers/Dockerfile -t plantvirome .
+apptainer build plantvirome.sif containers/plantvirome.def
+```
+
+Tools: `minimap2`, `chopper`, `porechop_abi`, `TideHunter`, `DIAMOND`, `taxonkit`
+(Python: `typer`, `pydantic`, `pyyaml`, `numpy`, `scipy`, `pyrodigal-gv`).
+Tests that need a missing tool are skipped, not failed.
+
+## Run
+
+```bash
+# one sample, locally (reads: FASTQ(.gz) files or a directory)
+plantvirome run --config my.yaml --outdir results --sample s1 --reads fastq/s1/
+
+# many samples on Slurm: writes results/slurm/<step>.<sample>.sh, chained with afterok
+plantvirome submit --config my.yaml --outdir results --sample s1 --sample s2 --dry-run
+plantvirome submit --config my.yaml --outdir results --sample s1 --sample s2
+
+# cohort step after all samples are done (also part of `submit`)
+plantvirome diversity --config my.yaml --outdir results
+```
+
+Individual steps: `plantvirome qc|hostdeplete|rca|assemble|classify|abundance|genbank|variety
+--config … --outdir … --sample …` (`--force` reruns a finished step).
+Logs are JSON lines (one object per event) on stderr; under Slurm they land in
+`results/slurm/logs/`.
+
+Without `--reads`, `qc` reads `results/<sample>/input/`.
+
+### Databases
+
+`classify` needs, in `databases`:
+
+* `viral_protein` — a DIAMOND database **built with taxonomy**,
+* `taxdump` — directory with NCBI `nodes.dmp`, `names.dmp`, `merged.dmp`, `delnodes.dmp`.
+
+Build both from NCBI RefSeq viral proteins (about 320 MB download, 3 minutes, ~350 MB on disk):
+
+```bash
+plantvirome download-db --outdir db --threads 8      # add --keep-raw to keep the downloads
+```
+
+It prints the two lines to paste under `databases:` and records the source URLs and date in
+`db/download.json` (cite it in your methods). Taxids come from the RefSeq `.gpff` files, so no
+multi-GB accession2taxid file is needed. To use another protein set, build it yourself with
+`diamond makedb --in x.faa -d x --taxonmap … --taxonnodes … --taxonnames …`.
+Because related species share near-identical proteins, the LCA often stops at genus
+(a conserved coat protein of a cassava mosaic virus classified as *Begomovirus*): species-level
+calls need nucleotide comparison of whole genomes, which `plantvirome` does not do.
+
+### Configuration
+
+Start from `config/default.yaml`; presets: `config/begomovirus.yaml` (genome size range, 91 %
+species threshold, `TAATATTAC` origin), `config/slurm.yaml` (partition, resources per step).
+Unknown keys are rejected. Validate with `plantvirome validate-config my.yaml`.
+
+| Section | Key parameters (default) |
+|---|---|
+| `host` | `references` (host FASTA, may be partial or empty), `variety_references` (organelles/markers) |
+| `databases` | `viral_protein`, `taxdump` |
+| `qc` | `min_length` 200, `max_length` none, `min_quality` 10, `trim_adapters` true |
+| `hostdeplete` | `min_query_cov` 0.5, `min_identity` 0.8 |
+| `rca` | `min_copies` 2, `min_period` 300, `max_period` 20000, `min_read_cover` 0.8 |
+| `assemble` | `min_identity` 0.85, `min_cover` 0.9, `min_cluster_units` 3, `min_units` 20, `circ_min_support` 3 |
+| `classify` | `evalue` 1e-5, `sensitivity` sensitive, `top_pct` 10, `tiers` close ≥85 / related ≥60 / distant ≥35 (protein identity %) |
+| `abundance` | `min_identity` 0.8, `min_read_cover` 0.5, `min_breadth` 0.9, `chimera_min_frac` 0.2 |
+| `diversity` | `cluster_identity` 0.90, `cluster_min_cover` 0.80 |
+| `genbank` | `min_length` 200, `max_n_fraction` 0.01, `min_depth` 20, `allowed_tiers`, `submit_partial` false, `origin_motif`/`origin_offset`, `min_orf_aa` 60, `metadata`, `metadata_csv` |
+| `variety` | `min_depth` 10, `min_alt_frac` 0.8, `complete_breadth` 0.9 |
+| `slurm` | `partition`, `account`, `setup` (shell lines), `default` and per-`steps` `cpus`/`mem_gb`/`time` |
+
+## What each step does, and what to watch
+
+Layout: `results/<sample>/<step>/`.
+
+**qc** — `porechop_abi` adapter trimming (no internal splitting) and `chopper` length/quality
+filter. Outputs `reads.qc.fastq.gz`, `stats.json`. *Do not set `max_length` low*: concatemers
+of 10–30 kb are the signal. Do not raise `min_quality` much; later steps use the extra copies
+to correct errors.
+
+**hostdeplete** — maps reads to the host panel (`minimap2 -c`); a read is host if alignments
+cover ≥ `min_query_cov` of it. Reads are split into `reads.host/nonhost.fastq.gz`, never
+deleted. With an incomplete host genome, reads from missing regions stay in the non-host
+set (classification removes them later); reads from endogenous viral elements in the host
+panel are labelled host.
+
+**rca** — `TideHunter` finds the tandem repeat in each read and calls an error-corrected
+consensus of one genome copy ("unit"). Classes: `clean` (one repeat region covers ≥ 80 % of
+the read), `multi`/`partial` (putative chimeras from template switching; units go to
+`units.flagged.fasta`, never into assembly), `untandem` (no concatemer, not used). Set
+`min_period`/`max_period` around the genome sizes you expect (satellites ~1.3 kb to
+bipartite/ssDNA genomes ~3 kb). Chimeras between near-identical genomes can look clean.
+
+**assemble** — units are clustered and polished directly (seed + majority vote; see the
+module docstring). Flye was tried and failed unpredictably on fixed-length full-genome
+reads. Contigs are circular by construction (`circ_support` = number of units). Strains
+closer than `min_identity` collapse into one majority consensus; samples with fewer than
+`min_units` clean units give an empty assembly rather than an error.
+
+**classify** — `DIAMOND blastx` (frameshift-tolerant) + LCA over hits within `top_pct`
+of the best (`taxonkit`). `taxonomy.tsv` has taxon, rank, lineage, best identity, query
+coverage and a tier. Tiers are protein-identity bands, **not** ICTV species thresholds —
+tune them per virus group. No hit ⇒ `unclassified` (novel virus, protein-free satellite,
+host or organelle sequence).
+
+**abundance** — reads re-mapped to contigs; abundance is **mean depth** (aligned bases /
+length), not read counts, because a concatemer carries many copies. Reports breadth,
+depth CV, a `detected` flag, relative abundance among detected contigs, and contig pairs
+joined by chimeric reads (`chimeras.tsv`). RCA amplifies unevenly and favours small circular
+DNA, so abundances are semi-quantitative: use them to rank, not as viral loads.
+
+**diversity** (cohort) — contigs of all samples are clustered into vOTUs (≥ `cluster_identity`
+over ≥ `cluster_min_cover`), so novel viruses count without a database hit. Alpha: observed
+vOTUs, Shannon, Simpson, Pielou, Chao1. Beta: Bray-Curtis (relative depth), Jaccard
+(presence/absence), Aitchison (CLR); PCoA of Bray-Curtis for ≥ 3 samples. Limits: this is
+the diversity of the **RCA-amplifiable** virome (circular DNA viruses and satellites; most
+RNA viruses are missed); Chao1 treats reads as individuals, which concatemers violate (read
+it as a rough lower bound); richness depends on the identity threshold; no rarefaction
+is applied, so compare samples of very different depth with care.
+
+**genbank** — per-contig status `submit` / `review` / `reject` with reasons in
+`contigs.qc.tsv`. Checks: length, ambiguous bases, depth, ID length (≤ 25), taxonomy tier,
+circularity, chimeric-read share, origin found exactly once. Circular genomes are rotated
+(either strand) to start at `origin_motif[origin_offset]`. ORFs come from `pyrodigal-gv`;
+`features.tbl` lists genes/CDS as "hypothetical protein" (`orf1`, `orf2`, …) because no
+curated gene names are shipped. `submission.fsa` has table2asn-style definition lines
+with `[organism=…][moltype=genomic][molecule=DNA][topology=…]` plus your `metadata`.
+**You must check** the proposed organism (species name, else `Genus sp.`, else the contig
+goes to review), fill country/collection date, and validate with NCBI's tool, which this
+package does not run:
+`table2asn -i submission.fsa -f features.tbl -t template.sbt -V vb`.
+ORFs crossing the origin are missed (fine when the origin is intergenic, as in begomoviruses).
+
+**variety** (optional) — maps all QC'd reads to `host.variety_references`, calls SNVs
+(`variants.tsv`), writes `consensus.fasta` with `N` where depth < `min_depth` and
+`coverage.tsv` flagged **PARTIAL** unless ≥ 90 % of each reference reaches that depth.
+Coverage of host DNA in an RCA virome is partial and uneven by nature. SNVs only (no
+indels), organelles assumed homoplasmic, and copies of one concatemer are not independent
+evidence. Naming a cultivar further needs a panel of known cultivar haplotypes (not
+included).
+
+## Tests
+
+```bash
+pytest tests/unit          # fast logic tests
+pytest tests/integration   # simulated two-sample run: reads → submission files → diversity
+```
+
+`tests/simulate.py` builds synthetic circular genomes, RCA concatemers with Nanopore-like
+errors, chimeras and host reads, so no real data is needed.
+
+## Status
+
+Developed and tested on Linux (x86_64) with simulated data only; the Docker image builds and
+passes the full test suite, including the end-to-end run. Not yet validated on real
+RCA-Nanopore runs (thresholds will need tuning), on a live Slurm cluster (scripts are
+generated and their command lines checked, but never submitted), or by building the
+Apptainer image. macOS: every conda tool has osx-64 and osx-arm64 packages on bioconda, but
+`environment.yml` has not been installed on a Mac.
+
+## License
+
+MIT, see `LICENSE`.

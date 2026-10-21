@@ -1,0 +1,10 @@
+# Virus-agnostic defaults. Copy and edit per project.
+threads: 4
+host:
+  name: unspecified          # free text, only used in reports
+  references: []             # FASTA files; may be partial genomes, organelles, transcripts
+  variety_references: []     # e.g. chloroplast genome for the optional `variety` step
+databases: {}                # e.g. viral_protein: /path/to/viral.dmnd
+qc:
+  min_length: 200
+  min_quality: 10
