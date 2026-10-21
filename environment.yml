@@ -11,5 +11,6 @@ dependencies:
   - tidehunter
   - diamond
   - taxonkit
+  - flye
   - pip:
       - -e .

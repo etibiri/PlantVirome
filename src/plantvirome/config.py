@@ -1,5 +1,6 @@
 """YAML configuration schema. Nothing here is virus- or host-specific."""
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
@@ -49,6 +50,17 @@ class RCA(_Strict):
 
 
 class Assemble(_Strict):
+    # units: assemble the RCA unit consensus sequences (default, fast, circular by construction).
+    # flye: de novo assembly of the raw reads with Flye --meta (see steps/assemble.py).
+    method: Literal["units", "flye"] = "units"
+    flye_mode: str = "nano-hq"            # flye --<flye_mode>
+    flye_reads: Literal["nonhost", "qc"] = "nonhost"   # host-depleted reads, or all QC'd reads
+    # Random subsample of the reads to about this many bases before Flye (None = use all).
+    # Concatemers are highly redundant; deep input makes Flye very slow and memory hungry.
+    flye_max_bases: int | None = 20_000_000
+    flye_seed: int = 1
+    # Collapse contigs made of tandem copies of the genome (always the case for raw RCA reads).
+    flye_collapse_multimers: bool = True
     # Units (one genome copy each, random rotation/strand) join a cluster if they align to
     # the seed unit (written twice, to absorb rotation) at >= min_identity over >= min_cover.
     min_identity: float = 0.85

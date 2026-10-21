@@ -30,7 +30,7 @@ docker build -f containers/Dockerfile -t plantvirome .
 apptainer build plantvirome.sif containers/plantvirome.def
 ```
 
-Tools: `minimap2`, `chopper`, `porechop_abi`, `TideHunter`, `DIAMOND`, `taxonkit`
+Tools: `minimap2`, `chopper`, `porechop_abi`, `TideHunter`, `DIAMOND`, `taxonkit`, `Flye` (only for `assemble.method: flye`)
 (Python: `typer`, `pydantic`, `pyyaml`, `numpy`, `scipy`, `pyrodigal-gv`).
 Tests that need a missing tool are skipped, not failed.
 
@@ -100,7 +100,7 @@ Unknown keys are rejected. Validate with `plantvirome validate-config my.yaml`.
 | `qc` | `min_length` 200, `max_length` none, `min_quality` 10, `trim_adapters` true |
 | `hostdeplete` | `min_query_cov` 0.5, `min_identity` 0.8 |
 | `rca` | `min_copies` 2, `min_period` 300, `max_period` 20000, `min_read_cover` 0.8 |
-| `assemble` | `min_identity` 0.85, `min_cover` 0.9, `min_cluster_units` 3, `min_units` 20, `circ_min_support` 3 |
+| `assemble` | `method` units/flye, `flye_mode` nano-hq, `flye_reads` nonhost/qc, `flye_max_bases` 20000000, `flye_collapse_multimers` true; units method: `min_identity` 0.85, `min_cover` 0.9, `min_cluster_units` 3, `min_units` 20, `circ_min_support` 3 |
 | `classify` | `evalue` 1e-5, `sensitivity` sensitive, `top_pct` 10, `tiers` close ≥85 / related ≥60 / distant ≥35 (protein identity %) |
 | `species` | `reference` (none = step skipped), `taxon`, `species_threshold` 0.91, `strain_threshold` none (begomovirus: 0.94), `min_cover` 0.8, `borderline_margin` 0.01 |
 | `abundance` | `min_identity` 0.8, `min_read_cover` 0.5, `min_breadth` 0.9, `chimera_min_frac` 0.2 |
@@ -131,11 +131,21 @@ the read), `multi`/`partial` (putative chimeras from template switching; units g
 `min_period`/`max_period` around the genome sizes you expect (satellites ~1.3 kb to
 bipartite/ssDNA genomes ~3 kb). Chimeras between near-identical genomes can look clean.
 
-**assemble** — units are clustered and polished directly (seed + majority vote; see the
-module docstring). Flye was tried and failed unpredictably on fixed-length full-genome
-reads. Contigs are circular by construction (`circ_support` = number of units). Strains
-closer than `min_identity` collapse into one majority consensus; samples with fewer than
-`min_units` clean units give an empty assembly rather than an error.
+**assemble** — two methods, selected with `assemble.method`:
+
+* `units` (default) — units are clustered and polished directly (seed + majority vote; see the
+  module docstring). Fast and deterministic. Contigs are circular by construction
+  (`circ_support` = number of units). Strains closer than `min_identity` collapse into one
+  majority consensus; samples with fewer than `min_units` clean units give an empty assembly.
+* `flye` — de novo assembly of the **raw** host-depleted reads with `Flye --meta`
+  (`flye_reads: qc` uses all QC'd reads). Raw concatemers make Flye assemble tandem multimers
+  (a 2.7 kb genome comes out as a 13.5 kb "circular" contig), so such contigs are collapsed to
+  one genome copy with TideHunter (`flye_collapse_multimers`; `circ_support` = copies found).
+  It is slow on deep, redundant data (about 1.5 min for 4 Mb, 4 threads), so reads are randomly
+  subsampled to `flye_max_bases` (20 Mb by default; `null` = all): **rare viruses can be lost
+  when subsampling**. Chimeric reads are not filtered here, and Flye was unstable on the
+  pre-corrected units, which is why `units` does not use it. Running both methods on the same
+  sample and comparing the contigs is a good consistency check.
 
 **classify** — `DIAMOND blastx` (frameshift-tolerant) + LCA over hits within `top_pct`
 of the best (`taxonkit`). `taxonomy.tsv` has taxon, rank, lineage, best identity, query

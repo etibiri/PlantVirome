@@ -60,3 +60,30 @@ def test_too_few_units(tmp_path):
     (rca / "units.fasta").write_text(">a\nACGT\n")
     run_assemble(Config(), tmp_path / "s1", 1)
     assert (tmp_path / "s1" / "assemble" / "contigs.fasta").read_text() == ""
+
+
+def test_subsample_fastq(tmp_path):
+    from plantvirome.steps.assemble import subsample_fastq
+    reads = [(f"r{i}", "ACGT" * 250) for i in range(100)]          # 100 kb
+    write_fastq(tmp_path / "in.fastq.gz", reads)
+    total, kept = subsample_fastq(tmp_path / "in.fastq.gz", tmp_path / "a.fastq.gz", 30_000, 1)
+    assert total == 100_000 and 15_000 < kept < 45_000
+    _, kept2 = subsample_fastq(tmp_path / "in.fastq.gz", tmp_path / "b.fastq.gz", 30_000, 1)
+    assert kept2 == kept                                              # deterministic for a seed
+    assert subsample_fastq(tmp_path / "in.fastq.gz", tmp_path / "c.fastq.gz", None, 1) == (100_000, 100_000)
+
+
+@pytest.mark.skipif(not all(shutil.which(t) for t in ("flye", "TideHunter")), reason="flye/TideHunter missing")
+def test_flye_method_collapses_multimers(tmp_path):
+    rng = random.Random(5)
+    g1, g2 = rand_seq(rng, 2700), rand_seq(rng, 2400)
+    reads, _ = simulate([g1, g1, g2], n_reads=150, host_frac=0, chimera_frac=0, copies=(3, 8))
+    hd = tmp_path / "s1" / "hostdeplete"
+    hd.mkdir(parents=True)
+    write_fastq(hd / "reads.nonhost.fastq.gz", reads)
+    cfg = Config.model_validate({"assemble": {"method": "flye"}})
+    run_assemble(cfg, tmp_path / "s1", 2)
+    contigs = read_fasta(tmp_path / "s1" / "assemble" / "contigs.fasta")
+    assert sorted(len(s) for s in contigs.values()) == pytest.approx([2400, 2700], abs=30)
+    rows = (tmp_path / "s1" / "assemble" / "contigs.tsv").read_text().splitlines()[1:]
+    assert all(r.split("\t")[3] == "True" for r in rows)
