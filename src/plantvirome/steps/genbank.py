@@ -68,8 +68,13 @@ def feature_table(seqid: str, orfs: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def organism(row: dict) -> tuple[str, str | None]:
-    """Proposed NCBI organism name from the classification, plus a warning if weak."""
+def organism(row: dict, sp: dict | None = None, taxon: str | None = None) -> tuple[str, str | None]:
+    """Proposed NCBI organism name, plus a warning if weak. A nucleotide-level species
+    call (species step) wins over the protein-level classification."""
+    if sp and sp.get("call") == "known_species":
+        return sp["species"], None
+    if sp and sp.get("call") == "novel_species_candidate" and taxon:
+        return f"{taxon} sp.", "novel_species_candidate"
     name, rank = row.get("name", ""), row.get("rank", "")
     if rank == "species":
         return name, None
@@ -107,6 +112,7 @@ def run_genbank(cfg: Config, sampledir: Path, force: bool = False) -> None:
     info = _rows(sampledir / "assemble" / "contigs.tsv", "contig")
     tax = _rows(sampledir / "classify" / "taxonomy.tsv", "contig")
     ab = _rows(sampledir / "abundance" / "abundance.tsv", "contig")
+    spec = _rows(sampledir / "species" / "species.tsv", "contig")
     meta = load_metadata(g, sample)
 
     qc_rows, fsa, tbl, faa = [], [], [], []
@@ -130,17 +136,22 @@ def run_genbank(cfg: Config, sampledir: Path, force: bool = False) -> None:
             reject.append("low_depth")
         if len(seqid) > SEQID_MAX:
             reject.append("seqid_too_long")
-        if t.get("tier", "unclassified") not in g.allowed_tiers:
+        sp = spec.get(contig)
+        # a nucleotide match to the reference genus is as good as a protein-tier hit
+        if t.get("tier", "unclassified") not in g.allowed_tiers and not (
+                sp and sp["call"] in ("known_species", "novel_species_candidate")):
             review.append("taxonomy_weak_or_missing")
         if not circ and not g.submit_partial:
             review.append("not_circular_partial_genome")
         if chim > g.max_chimeric_fraction:
             review.append("chimeric_reads_high")
-        org, org_warn = organism(t)
+        org, org_warn = organism(t, sp, cfg.species.taxon)
         if org_warn == "organism_unresolved":
             review.append(org_warn)
         elif org_warn:
             notes.append(org_warn)
+        if sp and sp["caveat"]:
+            notes.append("species_" + sp["caveat"].replace(",", ",species_"))
         note = ""
         if circ and g.origin_motif and not reject:
             seq, note = orient_and_rotate(seq, g.origin_motif, g.origin_offset)

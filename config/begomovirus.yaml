@@ -6,3 +6,11 @@ genbank:
   origin_offset: 7
   min_orf_aa: 60
   metadata: {host: Manihot esculenta, country: "TO BE FILLED", collection_date: "TO BE FILLED"}
+# Species assignment by DNA-A identity (ICTV: 91 % species, 94 % strain; verify the current
+# criteria). Build the references first:
+#   plantvirome download-refs --taxon Begomovirus --outdir db/begomovirus
+species:
+  reference: db/begomovirus/refs.fasta
+  taxon: Begomovirus
+  species_threshold: 0.91
+  strain_threshold: 0.94

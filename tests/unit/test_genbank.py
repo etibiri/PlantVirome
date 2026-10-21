@@ -80,3 +80,11 @@ def test_run_genbank_status(tmp_path):
     assert fsa.count(">") == 1 and "[organism=Cassava mosaic virus]" in fsa
     assert "[topology=circular]" in fsa and "[host=Manihot esculenta]" in fsa
     assert fsa.splitlines()[1].startswith("AC")
+
+
+def test_organism_prefers_species_call():
+    tax = {"name": "Begomovirus", "rank": "genus"}
+    assert organism(tax, {"call": "known_species", "species": "Real virus"}, "Begomovirus") == ("Real virus", None)
+    assert organism(tax, {"call": "novel_species_candidate"}, "Begomovirus") == \
+        ("Begomovirus sp.", "novel_species_candidate")
+    assert organism(tax, {"call": "no_reference_match"}, "Begomovirus")[0] == "Begomovirus sp."

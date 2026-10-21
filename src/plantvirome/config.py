@@ -5,7 +5,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 # Execution order; each name maps to a `plantvirome <name>` subcommand.
-STEPS = ["qc", "hostdeplete", "rca", "assemble", "classify",
+STEPS = ["qc", "hostdeplete", "rca", "assemble", "classify", "species",
          "abundance", "diversity", "genbank", "variety"]
 # Steps that run once for the whole cohort instead of once per sample.
 COHORT_STEPS = {"diversity"}
@@ -71,6 +71,20 @@ class Classify(_Strict):
     top_pct: float = 10.0
     # (min protein identity %, label), highest first. Below the last: "unclassified".
     tiers: list[tuple[float, str]] = [(85.0, "close"), (60.0, "related"), (35.0, "distant")]
+
+
+class Species(_Strict):
+    # Optional nucleotide-level species assignment against reference genomes made by
+    # `plantvirome download-refs`. The step is skipped when `reference` is not set.
+    reference: Path | None = None
+    taxon: str | None = None            # genus name, used to label novel candidates ("<taxon> sp.")
+    # Pairwise identity at/above which a contig belongs to the reference's species.
+    # Begomovirus DNA-A: 0.91 (ICTV, Brown et al. 2015); check the current ICTV criteria.
+    species_threshold: float = 0.91
+    strain_threshold: float | None = None   # begomovirus: 0.94; None = no strain call
+    min_cover: float = 0.8              # aligned fraction of the contig for a full comparison
+    min_partial_cover: float = 0.3      # below this there is no usable alignment at all
+    borderline_margin: float = 0.01     # |identity - threshold| below this is flagged borderline
 
 
 class Abundance(_Strict):
@@ -142,6 +156,7 @@ class Config(_Strict):
     rca: RCA = RCA()
     assemble: Assemble = Assemble()
     classify: Classify = Classify()
+    species: Species = Species()
     abundance: Abundance = Abundance()
     diversity: Diversity = Diversity()
     genbank: GenBank = GenBank()

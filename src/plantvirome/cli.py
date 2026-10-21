@@ -14,7 +14,9 @@ from .steps import diversity as diversity_step
 from .steps import genbank as genbank_step
 from .steps import variety as variety_step
 from .steps import download_db as download_db_step
+from .steps import download_refs as download_refs_step
 from .steps import rca as rca_step
+from .steps import species as species_step
 from .steps import qc as qc_step
 from .slurm import submit as slurm_submit
 from .slurm import write_scripts
@@ -201,6 +203,7 @@ def run(
         "rca": lambda: rca_step.run_rca(cfg, sd, threads, force),
         "assemble": lambda: assemble_step.run_assemble(cfg, sd, threads, force),
         "classify": lambda: classify_step.run_classify(cfg, sd, threads, force),
+        "species": lambda: species_step.run_species(cfg, sd, threads, force),
         "abundance": lambda: abundance_step.run_abundance(cfg, sd, threads, force),
         "diversity": lambda: diversity_step.run_diversity(cfg, outdir, [sample], threads, force),
         "genbank": lambda: genbank_step.run_genbank(cfg, sd, force),
@@ -226,3 +229,26 @@ def download_db(
         shutil.rmtree(outdir / "raw")
     typer.echo(f"Add to your config:\ndatabases:\n  viral_protein: {dmnd.resolve()}\n"
                f"  taxdump: {(outdir / 'taxdump').resolve()}")
+
+
+@app.command()
+def species(
+    config: Path = typer.Option(..., exists=True),
+    outdir: Path = typer.Option(Path("results")),
+    sample: str = typer.Option(...),
+    threads: int = typer.Option(None),
+    force: bool = typer.Option(False, help="Re-run even if already done."),
+) -> None:
+    """Species assignment of contigs by nucleotide identity to reference genomes."""
+    cfg = load_config(config)
+    species_step.run_species(cfg, outdir / sample, threads or cfg.threads, force)
+
+
+@app.command("download-refs")
+def download_refs(
+    taxon: str = typer.Option(..., help="Genus or other taxon name, e.g. Begomovirus."),
+    outdir: Path = typer.Option(Path("db/refs")),
+) -> None:
+    """Download RefSeq reference genomes of a taxon for the species step."""
+    fasta = download_refs_step.run_download_refs(taxon, outdir)
+    typer.echo(f"Add to your config:\nspecies:\n  reference: {fasta.resolve()}\n  taxon: {taxon}")

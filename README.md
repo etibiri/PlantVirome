@@ -8,7 +8,7 @@ virus-specific parameters (genome size range, origin motif, species threshold) l
 Pipeline (one subcommand per step, each resumable through a `.done` marker):
 
 ```
-qc → hostdeplete → rca → assemble → classify → abundance → genbank     (per sample)
+qc → hostdeplete → rca → assemble → classify → species → abundance → genbank   (per sample)
                                                └→ diversity            (once, all samples)
                                     variety (optional, host organelle markers)
 ```
@@ -48,7 +48,7 @@ plantvirome submit --config my.yaml --outdir results --sample s1 --sample s2
 plantvirome diversity --config my.yaml --outdir results
 ```
 
-Individual steps: `plantvirome qc|hostdeplete|rca|assemble|classify|abundance|genbank|variety
+Individual steps: `plantvirome qc|hostdeplete|rca|assemble|classify|species|abundance|genbank|variety
 --config … --outdir … --sample …` (`--force` reruns a finished step).
 Logs are JSON lines (one object per event) on stderr; under Slurm they land in
 `results/slurm/logs/`.
@@ -76,6 +76,17 @@ Because related species share near-identical proteins, the LCA often stops at ge
 (a conserved coat protein of a cassava mosaic virus classified as *Begomovirus*): species-level
 calls need nucleotide comparison of whole genomes, which `plantvirome` does not do.
 
+### Reference genomes for species calls (optional)
+
+```bash
+plantvirome download-refs --taxon Begomovirus --outdir db/begomovirus   # ~1 min, 725 RefSeq genomes
+```
+
+Fetches the RefSeq genomes of a taxon from NCBI (Entrez) into `refs.fasta`
+(`accession|species|taxid|component`, component `A` = DNA-A or monopartite, `B` = DNA-B,
+`satellite`), plus `refs.tsv` and `download.json`. Point `species.reference` at `refs.fasta`.
+Without it the `species` step is skipped and nothing else changes.
+
 ### Configuration
 
 Start from `config/default.yaml`; presets: `config/begomovirus.yaml` (genome size range, 91 %
@@ -91,6 +102,7 @@ Unknown keys are rejected. Validate with `plantvirome validate-config my.yaml`.
 | `rca` | `min_copies` 2, `min_period` 300, `max_period` 20000, `min_read_cover` 0.8 |
 | `assemble` | `min_identity` 0.85, `min_cover` 0.9, `min_cluster_units` 3, `min_units` 20, `circ_min_support` 3 |
 | `classify` | `evalue` 1e-5, `sensitivity` sensitive, `top_pct` 10, `tiers` close ≥85 / related ≥60 / distant ≥35 (protein identity %) |
+| `species` | `reference` (none = step skipped), `taxon`, `species_threshold` 0.91, `strain_threshold` none (begomovirus: 0.94), `min_cover` 0.8, `borderline_margin` 0.01 |
 | `abundance` | `min_identity` 0.8, `min_read_cover` 0.5, `min_breadth` 0.9, `chimera_min_frac` 0.2 |
 | `diversity` | `cluster_identity` 0.90, `cluster_min_cover` 0.80 |
 | `genbank` | `min_length` 200, `max_n_fraction` 0.01, `min_depth` 20, `allowed_tiers`, `submit_partial` false, `origin_motif`/`origin_offset`, `min_orf_aa` 60, `metadata`, `metadata_csv` |
@@ -130,6 +142,20 @@ of the best (`taxonkit`). `taxonomy.tsv` has taxon, rank, lineage, best identity
 coverage and a tier. Tiers are protein-identity bands, **not** ICTV species thresholds —
 tune them per virus group. No hit ⇒ `unclassified` (novel virus, protein-free satellite,
 host or organelle sequence).
+
+**species** (optional) — nucleotide-level species assignment, because protein hits often stop
+at genus. Each contig is aligned (`minimap2 -x asm20`) to the reference genomes and gets, in
+`species.tsv`: `known_species` (identity ≥ `species_threshold` over ≥ 80 % of the contig; the
+species of the best reference), `novel_species_candidate` (below it; the nearest species is
+reported), `no_reference_match`, or `other_component` (best hit is DNA-B or a satellite: no species
+decision, since the threshold applies to DNA-A). Caveats: `borderline` (within 1 point of the
+threshold), `partial_alignment`, `new_strain` (below `strain_threshold`). Limits: identity is
+alignment-based and reads ~0.5 points low at 91 %; alignments fragment below ~86 % identity, so
+more divergent contigs are reported by coverage only; references are RefSeq exemplars, not
+every member of a species. **Confirm every borderline and novel call with a multiple alignment
+(e.g. SDT or MAFFT) and the current ICTV criteria** before naming anything. The species name is
+the NCBI organism of the closest reference (can be a strain-level taxon, or a new ICTV binomial
+such as *Begomovirus manihotis*). `genbank` uses a species call for the organism name.
 
 **abundance** — reads re-mapped to contigs; abundance is **mean depth** (aligned bases /
 length), not read counts, because a concatemer carries many copies. Reports breadth,
