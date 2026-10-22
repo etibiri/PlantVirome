@@ -45,5 +45,6 @@ def test_slurm_commands_match_cli():
         sample = None if step in COHORT_STEPS else "s1"
         script = render(cfg, step, sample, Path("c.yaml"), Path("out"), Path("logs"))
         used = set(re.findall(r"--[a-z-]+", script.splitlines()[-1]))
-        helptext = CliRunner().invoke(app, [step, "--help"]).output
+        # typer forces ANSI colours under GITHUB_ACTIONS, which splits option names
+        helptext = re.sub(r"\x1b\[[0-9;]*m", "", CliRunner().invoke(app, [step, "--help"]).output)
         assert all(opt in helptext for opt in used), (step, used)
