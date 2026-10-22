@@ -194,7 +194,8 @@ def flye_contigs(cfg: Config, sampledir: Path, out: Path, threads: int) -> list[
         {k: (v, 0.0) for k, v in asm.items()}
     shutil.rmtree(flye)
     sub.unlink()
-    rows = [(seq, info[k][0], info[k][1] or copies >= 2, copies) for k, (seq, copies) in collapsed.items()]
+    rows = [(seq, info[k][0], info[k][1] or copies >= 2, copies)
+            for k, (seq, copies) in collapsed.items() if info[k][0] >= a.flye_min_coverage]
     return sorted(rows, key=lambda r: -r[1])
 
 

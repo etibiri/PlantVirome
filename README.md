@@ -100,7 +100,7 @@ Unknown keys are rejected. Validate with `plantvirome validate-config my.yaml`.
 | `qc` | `min_length` 200, `max_length` none, `min_quality` 10, `trim_adapters` true |
 | `hostdeplete` | `min_query_cov` 0.5, `min_identity` 0.8 |
 | `rca` | `min_copies` 2, `min_period` 300, `max_period` 20000, `min_read_cover` 0.8 |
-| `assemble` | `method` units/flye, `flye_mode` nano-hq, `flye_reads` nonhost/qc, `flye_max_bases` 20000000, `flye_collapse_multimers` true; units method: `min_identity` 0.85, `min_cover` 0.9, `min_cluster_units` 3, `min_units` 20, `circ_min_support` 3; polishing: `polish_rounds` 2 (0 = off), `polish_medaka_model` null, `polish_max_bases` 50000000 |
+| `assemble` | `method` units/flye, `flye_mode` nano-hq, `flye_reads` nonhost/qc, `flye_max_bases` 20000000, `flye_collapse_multimers` true, `flye_min_coverage` 15; units method: `min_identity` 0.85, `min_cover` 0.9, `min_cluster_units` 3, `min_units` 20, `circ_min_support` 3; polishing: `polish_rounds` 2 (0 = off), `polish_medaka_model` null, `polish_max_bases` 50000000 |
 | `classify` | `evalue` 1e-5, `sensitivity` sensitive, `top_pct` 10, `tiers` close ≥85 / related ≥60 / distant ≥35 (protein identity %) |
 | `species` | `reference` (none = step skipped), `taxon`, `species_threshold` 0.91, `strain_threshold` none (begomovirus: 0.94), `min_cover` 0.8, `borderline_margin` 0.01 |
 | `satellite` | `groups` {name: `reference`, `species_threshold`, `min_length`, `max_length`}, `min_cover` 0.8, `min_ref_cover` 0.8 |

@@ -61,6 +61,9 @@ class Assemble(_Strict):
     flye_seed: int = 1
     # Collapse contigs made of tandem copies of the genome (always the case for raw RCA reads).
     flye_collapse_multimers: bool = True
+    # Drop Flye contigs below this Flye-reported depth (on the subsampled input): chimeras and
+    # mis-joined concatemers sit at 3-10x, real genomes and variants at >= 17x (barcode01, 80 Mb).
+    flye_min_coverage: float = 15.0
     # Units (one genome copy each, random rotation/strand) join a cluster if they align to
     # the seed unit (written twice, to absorb rotation) at >= min_identity over >= min_cover.
     min_identity: float = 0.85
