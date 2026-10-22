@@ -19,6 +19,16 @@ TideHunter. Flye is slow on deep, redundant RCA data (minutes for a few Mb), hen
 read subsampling; reads below the cap are all used. Unlike the units method it can
 use reads without a clean concatemer, but it does not correct chimeras: they were
 already removed only from the units, not from the raw reads.
+
+Polishing (after either method): `polish_rounds` rounds of Racon with the host-depleted
+reads (minimap2 map-ont, one primary alignment per read, so a concatemer counts once per
+round), then, if `polish_medaka_model` is set, one Medaka round (neural, basecaller-specific
+model). Circular contigs are padded with their own other end before each tool and cut back
+at an anchor k-mer afterwards (Racon trims target ends; `--no-trimming` inserts bases at
+window edges), so the circular junction is polished too. The origin shifts by about 10 bp
+per round (`genbank` reorients). Contigs under 300 bp or without read support stay as they
+were; a polish that changes a contig's length by more than 5 % is rejected. Pre-polish
+sequences are kept in contigs.prepolish.fasta.
 """
 import gzip
 import random
@@ -188,6 +198,53 @@ def flye_contigs(cfg: Config, sampledir: Path, out: Path, threads: int) -> list[
     return sorted(rows, key=lambda r: -r[1])
 
 
+def polish_padded(contigs: list[str], engine, work: Path) -> list[str]:
+    """Run engine(target_fa, out_fa) on `contigs` padded with their own ends, then cut each
+    back at an anchor k-mer so the circle keeps its junction. A contig under 300 bp, or whose
+    anchor is lost or length changes by more than 5 %, is returned unchanged."""
+    target, res = work / "polish.fa", work / "polish.out.fa"
+    pads = [min(500, len(c) // 3) if len(c) >= 300 else 0 for c in contigs]
+    target.write_text("".join(f">c{k}\n{c[-p:] + c + c[:p]}\n" for k, (c, p) in enumerate(zip(contigs, pads)) if p))
+    engine(target, res)
+    pol = read_fasta(res)
+    new = []
+    for k, (old, p) in enumerate(zip(contigs, pads)):
+        seq = pol.get(f"c{k}", "")
+        anchor = seq[p + 10:p + 40]
+        q = seq.find(anchor, p + 40) if len(anchor) == 30 else -1
+        cut = seq[p + 10:q] if q > 0 else ""
+        new.append(cut if 0.95 * len(old) <= len(cut) <= 1.05 * len(old) else old)
+    for f in (target, res):
+        f.unlink(missing_ok=True)
+    return new
+
+
+def racon_polish(contigs: list[str], reads: Path, rounds: int, threads: int, work: Path) -> list[str]:
+    paf = work / "polish.paf"
+
+    def engine(target: Path, res: Path) -> None:
+        run(["minimap2", "-x", "map-ont", "-t", threads, "--secondary=no", target, reads], stdout=paf)
+        run(["racon", "-t", threads, "-u", reads, paf, target], stdout=res)
+
+    for _ in range(rounds):
+        contigs = polish_padded(contigs, engine, work)
+    paf.unlink(missing_ok=True)
+    return contigs
+
+
+def medaka_polish(contigs: list[str], reads: Path, model: str, threads: int, work: Path) -> list[str]:
+    mdir = work / "medaka"
+
+    def engine(target: Path, res: Path) -> None:
+        shutil.rmtree(mdir, ignore_errors=True)
+        run(["medaka_consensus", "-i", reads, "-d", target, "-o", mdir, "-m", model, "-t", threads])
+        shutil.copy(mdir / "consensus.fasta", res)
+
+    out = polish_padded(contigs, engine, work)
+    shutil.rmtree(mdir, ignore_errors=True)
+    return out
+
+
 def run_assemble(cfg: Config, sampledir: Path, threads: int, force: bool = False) -> None:
     out = sampledir / "assemble"
     if step_done(out) and not force:
@@ -206,6 +263,22 @@ def run_assemble(cfg: Config, sampledir: Path, threads: int, force: bool = False
         else:
             contigs = [(seq, n, n >= a.circ_min_support, n)
                        for seq, n in cluster_units(units, a, threads, out)]
+    if contigs and (a.polish_rounds or a.polish_medaka_model):
+        src = sampledir / "hostdeplete" / "reads.nonhost.fastq.gz"
+        if not src.exists():
+            event("polish skipped: no host-depleted reads", sample=sampledir.name, reads=str(src))
+        else:
+            sub = out / "polish_input.fastq.gz"
+            subsample_fastq(src, sub, a.polish_max_bases, a.flye_seed)
+            seqs = racon_polish([c[0] for c in contigs], sub, a.polish_rounds, threads, out)
+            if a.polish_medaka_model:
+                seqs = medaka_polish(seqs, sub, a.polish_medaka_model, threads, out)
+            sub.unlink()
+            with open(out / "contigs.prepolish.fasta", "w") as fa:
+                for i, c in enumerate(contigs, 1):
+                    fa.write(f">{sampledir.name}_c{i}\n{c[0]}\n")
+            contigs = [(s_, *c[1:]) for s_, c in zip(seqs, contigs)]
+            event("polish done", sample=sampledir.name, rounds=a.polish_rounds, medaka=a.polish_medaka_model, contigs=len(contigs))
     with open(out / "contigs.fasta", "w") as fa, open(out / "contigs.tsv", "w") as tsv:
         tsv.write(header)
         for i, (seq, cov, circ, support) in enumerate(contigs, 1):

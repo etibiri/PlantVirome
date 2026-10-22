@@ -30,7 +30,7 @@ docker build -f containers/Dockerfile -t plantvirome .
 apptainer build plantvirome.sif containers/plantvirome.def
 ```
 
-Tools: `minimap2`, `chopper`, `porechop_abi`, `TideHunter`, `DIAMOND`, `taxonkit`, `Flye` (only for `assemble.method: flye`)
+Tools: `minimap2`, `chopper`, `porechop_abi`, `TideHunter`, `DIAMOND`, `taxonkit`, `Flye` (only for `assemble.method: flye`), `Racon` (polishing)
 (Python: `typer`, `pydantic`, `pyyaml`, `numpy`, `scipy`, `pyrodigal-gv`).
 Tests that need a missing tool are skipped, not failed.
 
@@ -100,7 +100,7 @@ Unknown keys are rejected. Validate with `plantvirome validate-config my.yaml`.
 | `qc` | `min_length` 200, `max_length` none, `min_quality` 10, `trim_adapters` true |
 | `hostdeplete` | `min_query_cov` 0.5, `min_identity` 0.8 |
 | `rca` | `min_copies` 2, `min_period` 300, `max_period` 20000, `min_read_cover` 0.8 |
-| `assemble` | `method` units/flye, `flye_mode` nano-hq, `flye_reads` nonhost/qc, `flye_max_bases` 20000000, `flye_collapse_multimers` true; units method: `min_identity` 0.85, `min_cover` 0.9, `min_cluster_units` 3, `min_units` 20, `circ_min_support` 3 |
+| `assemble` | `method` units/flye, `flye_mode` nano-hq, `flye_reads` nonhost/qc, `flye_max_bases` 20000000, `flye_collapse_multimers` true; units method: `min_identity` 0.85, `min_cover` 0.9, `min_cluster_units` 3, `min_units` 20, `circ_min_support` 3; polishing: `polish_rounds` 2 (0 = off), `polish_medaka_model` null, `polish_max_bases` 50000000 |
 | `classify` | `evalue` 1e-5, `sensitivity` sensitive, `top_pct` 10, `tiers` close ≥85 / related ≥60 / distant ≥35 (protein identity %) |
 | `species` | `reference` (none = step skipped), `taxon`, `species_threshold` 0.91, `strain_threshold` none (begomovirus: 0.94), `min_cover` 0.8, `borderline_margin` 0.01 |
 | `satellite` | `groups` {name: `reference`, `species_threshold`, `min_length`, `max_length`}, `min_cover` 0.8, `min_ref_cover` 0.8 |
@@ -148,6 +148,25 @@ bipartite/ssDNA genomes ~3 kb). Chimeras between near-identical genomes can look
   when subsampling**. Chimeric reads are not filtered here, and Flye was unstable on the
   pre-corrected units, which is why `units` does not use it. Running both methods on the same
   sample and comparing the contigs is a good consistency check.
+
+  *Polishing* (both methods): `polish_rounds` rounds (default 2) of `Racon` with the host-depleted
+  reads (subsampled to `polish_max_bases`; minimap2 `map-ont`, one alignment per read, so a
+  concatemer counts once per round), then, if `polish_medaka_model` is set (e.g.
+  `r1041_e82_400bps_sup_v5.2.0`; it must match the basecalling model), one `Medaka` round.
+  Circular contigs are padded with their own other end and cut back at an anchor k-mer, so
+  the junction is polished too (Racon alone trims the ends, or with `--no-trimming` inserts
+  bases at window edges); the origin moves by about 10 bp per round, which `genbank`
+  re-fixes. Contigs under 300 bp, without read support, or whose length changes by more
+  than 5 % stay unpolished. Pre-polish sequences are in `contigs.prepolish.fasta`.
+  Medaka is **not** in `environment.yml` (heavy, and its conda solve was not tested with the
+  other tools here): install it in its own environment and put `medaka_consensus`, `bgzip`
+  and `tabix` on the `PATH`. On two real SUP contigs (barcode01, about 2.8 kb), Racon changed
+  2 and 17 positions relative to the units consensus, and Medaka then reverted almost all of
+  them (0 and 2 differences left versus the units consensus): Racon's edits looked like
+  errors, not corrections. That is two contigs and no truth set, so treat it as a hint:
+  for SUP data prefer `polish_rounds: 0` with Medaka, or no polishing, and confirm on your
+  own data. Polishing cannot repair a consensus built from the wrong strain mix, or errors
+  shared by all reads.
 
 **classify** — `DIAMOND blastx` (frameshift-tolerant) + LCA over hits within `top_pct`
 of the best (`taxonkit`). `taxonomy.tsv` has taxon, rank, lineage, best identity, query

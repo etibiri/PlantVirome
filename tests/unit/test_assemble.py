@@ -87,3 +87,45 @@ def test_flye_method_collapses_multimers(tmp_path):
     assert sorted(len(s) for s in contigs.values()) == pytest.approx([2400, 2700], abs=30)
     rows = (tmp_path / "s1" / "assemble" / "contigs.tsv").read_text().splitlines()[1:]
     assert all(r.split("\t")[3] == "True" for r in rows)
+
+
+def _edits(tmp_path, truth, seq):
+    """Edit distance of `seq` (any rotation) to the circular `truth`, via minimap2 NM."""
+    import subprocess
+    (tmp_path / "t.fa").write_text(f">t\n{truth * 2}\n")
+    (tmp_path / "q.fa").write_text(f">q\n{seq}\n")
+    f = subprocess.run(["minimap2", "-c", "-x", "asm20", tmp_path / "t.fa", tmp_path / "q.fa"],
+                       capture_output=True, text=True, check=True).stdout.split("\t")
+    nm = int(next(x for x in f if x.startswith("NM:i:"))[5:])
+    return nm + len(seq) - int(f[3]) + int(f[2])      # unaligned query bases count as edits
+
+
+def test_racon_polish_fixes_substitutions_and_keeps_circle(tmp_path):
+    from plantvirome.steps.assemble import racon_polish
+    rng = random.Random(3)
+    truth = rand_seq(rng, 2700)
+    draft = list(truth)
+    for p in rng.sample(range(len(truth)), 20):
+        draft[p] = "A" if truth[p] != "A" else "C"
+    reads = [(f"r{i}", mutate(rng, (truth[s:] + truth[:s]) * 2, 0.03))
+             for i, s in enumerate(rng.randrange(2700) for _ in range(120))]
+    write_fastq(tmp_path / "r.fastq.gz", reads)
+    # separately: reads go to the best-matching contig, and the two are nearly identical
+    fixed, = racon_polish(["".join(draft)], tmp_path / "r.fastq.gz", 2, 1, tmp_path)
+    same, = racon_polish([truth], tmp_path / "r.fastq.gz", 2, 1, tmp_path)
+    assert _edits(tmp_path, truth, "".join(draft)) == 20
+    assert _edits(tmp_path, truth, fixed) <= 3
+    assert _edits(tmp_path, truth, same) <= 3          # a correct contig is not degraded
+
+
+@pytest.mark.skipif(shutil.which("medaka_consensus") is None, reason="medaka not installed")
+def test_medaka_polish_keeps_circle_and_does_not_degrade(tmp_path):
+    from plantvirome.steps.assemble import medaka_polish
+    rng = random.Random(5)
+    truth = rand_seq(rng, 2700)
+    reads = [(f"r{i}", mutate(rng, (truth[s:] + truth[:s]) * 2, 0.03))
+             for i, s in enumerate(rng.randrange(2700) for _ in range(150))]
+    write_fastq(tmp_path / "r.fastq.gz", reads)
+    out, = medaka_polish([truth], tmp_path / "r.fastq.gz", "r1041_e82_400bps_sup_v5.2.0", 2, tmp_path)
+    assert abs(len(out) - len(truth)) <= 10
+    assert _edits(tmp_path, truth, out) <= 10     # simulated errors are not Medaka's training distribution

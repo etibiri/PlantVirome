@@ -12,5 +12,6 @@ dependencies:
   - diamond
   - taxonkit
   - flye
+  - racon
   - pip:
       - -e .

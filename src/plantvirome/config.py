@@ -72,6 +72,13 @@ class Assemble(_Strict):
     # Contigs are circular by construction (built from concatemers); this many
     # independent units are required before the circular flag is set.
     circ_min_support: int = 3
+    # Racon polishing of the final contigs with the host-depleted reads (0 = off).
+    # Circular contigs are padded with their own ends so the junction is polished too.
+    polish_rounds: int = 2
+    # Medaka model of the basecaller used, e.g. r1041_e82_400bps_sup_v5.2.0 (None = no Medaka).
+    # Runs once after Racon; `medaka tools list_models` shows the installed models.
+    polish_medaka_model: str | None = None
+    polish_max_bases: int | None = 50_000_000   # subsample the reads to about this many bases
 
 
 class Classify(_Strict):
