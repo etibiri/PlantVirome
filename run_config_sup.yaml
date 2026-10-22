@@ -3,19 +3,19 @@ threads: 5
 host:
   name: Manihot esculenta
   references:
-    - /home/etibiri/genome/cassava/GCA_001659605.2_M.esculenta_v8_genomic.fna   # partial nuclear assembly
-    - /home/etibiri/Documents/2026/cassava/db/manihot_chloroplast.fa             # NC_010433.1
+    - genome/cassava/GCA_001659605.2_M.esculenta_v8_genomic.fna   # partial nuclear assembly
+    - db/manihot_chloroplast.fa             # NC_010433.1
   variety_references:
-    - /home/etibiri/Documents/2026/cassava/db/manihot_chloroplast.fa
+    - db/manihot_chloroplast.fa
 databases:
-  viral_protein: /home/etibiri/Documents/2026/cassava/db/refseq_viral/viral_protein.dmnd
-  taxdump: /home/etibiri/Documents/2026/cassava/db/refseq_viral/taxdump
+  viral_protein: db/refseq_viral/viral_protein.dmnd
+  taxdump: db/refseq_viral/taxdump
 qc:
   min_length: 500
   trim_adapters: false    # dorado already trimmed adapters/barcodes (no adapter motif left in the reads)
   min_quality: 10         # SUP basecalling (dna_r10.4.1_e8.2_400bps_sup@v5.2.0)
 species:
-  reference: /home/etibiri/Documents/2026/cassava/db/begomovirus/refs.fasta
+  reference: db/begomovirus/refs.fasta
   taxon: Begomovirus
   species_threshold: 0.91
   strain_threshold: 0.94
@@ -33,17 +33,17 @@ diversity:
 satellite:
   groups:
     alphasatellite:
-      reference: /home/etibiri/Documents/2026/cassava/db/alphasatellite/refs.fasta
+      reference: db/alphasatellite/refs.fasta
       species_threshold: 0.88      # ICTV Geminialphasatellitinae (Nanoalphasatellitinae: 0.80); verify
       min_length: 1000
       max_length: 1700
     betasatellite:
-      reference: /home/etibiri/Documents/2026/cassava/db/betasatellite/refs.fasta
+      reference: db/betasatellite/refs.fasta
       species_threshold: 0.91      # ICTV Tolecusatellitidae; verify
       min_length: 1000
       max_length: 1700
     deltasatellite:
-      reference: /home/etibiri/Documents/2026/cassava/db/deltasatellite/refs.fasta
+      reference: db/deltasatellite/refs.fasta
       species_threshold: 0.91
       min_length: 600
       max_length: 1000

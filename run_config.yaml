@@ -3,18 +3,18 @@ threads: 5
 host:
   name: Manihot esculenta
   references:
-    - /home/etibiri/genome/cassava/GCA_001659605.2_M.esculenta_v8_genomic.fna   # partial nuclear assembly
-    - /home/etibiri/Documents/2026/cassava/db/manihot_chloroplast.fa             # NC_010433.1
+    - genome/cassava/GCA_001659605.2_M.esculenta_v8_genomic.fna   # partial nuclear assembly
+    - db/manihot_chloroplast.fa             # NC_010433.1
   variety_references:
-    - /home/etibiri/Documents/2026/cassava/db/manihot_chloroplast.fa
+    - db/manihot_chloroplast.fa
 databases:
-  viral_protein: /home/etibiri/Documents/2026/cassava/db/refseq_viral/viral_protein.dmnd
-  taxdump: /home/etibiri/Documents/2026/cassava/db/refseq_viral/taxdump
+  viral_protein: db/refseq_viral/viral_protein.dmnd
+  taxdump: db/refseq_viral/taxdump
 qc:
   min_length: 500
   min_quality: 8          # run was basecalled with the "fast" model (mean read Q ~9.9)
 species:
-  reference: /home/etibiri/Documents/2026/cassava/db/begomovirus/refs.fasta
+  reference: db/begomovirus/refs.fasta
   taxon: Begomovirus
   species_threshold: 0.91
   strain_threshold: 0.94
