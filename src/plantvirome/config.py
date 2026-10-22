@@ -97,6 +97,9 @@ class Species(_Strict):
     min_cover: float = 0.8              # aligned fraction of the contig for a full comparison
     min_partial_cover: float = 0.3      # below this there is no usable alignment at all
     borderline_margin: float = 0.01     # |identity - threshold| below this is flagged borderline
+    # A contig covering less of the reference genome than this is a fragment (defective or
+    # subgenomic DNA, or an assembly piece), not a complete genome: caveat partial_genome.
+    min_ref_cover: float = 0.8
 
 
 class Abundance(_Strict):
@@ -114,7 +117,18 @@ class Diversity(_Strict):
     # units): >= cluster_identity nucleotide identity over >= cluster_min_cover of the
     # shorter contig. Set the identity to the species threshold of your virus group.
     cluster_identity: float = 0.90
-    cluster_min_cover: float = 0.80
+    cluster_min_cover: float = 0.80      # aligned fraction of the LONGER contig (genome-level)
+    # Shorter contigs (phi29 artifacts, fragments) are not clustered: they bridge genomes that
+    # share a small region, e.g. DNA-A and DNA-B through the common region.
+    min_contig_length: int = 1000
+    # Leave out contigs with no protein tier and no nucleotide species call (host or
+    # unidentified DNA that survived depletion would otherwise count as vOTUs).
+    exclude_unclassified: bool = False
+    # Negative controls (sample names). They are clustered with the samples but left out of
+    # alpha/beta diversity; vOTUs also seen in a blank are reported in contamination.tsv.
+    blanks: list[str] = []
+    # A sample's vOTU is flagged if its depth is below blank_ratio x the depth in the blank.
+    blank_ratio: float = 10.0
 
 
 class GenBank(_Strict):
@@ -129,6 +143,12 @@ class GenBank(_Strict):
     # begomovirus: motif TAATATTAC, offset 7 (nick site TAATATT^AC).
     origin_motif: str | None = None
     origin_offset: int = 0
+    # Substitutions tolerated in the motif (consensus errors); >0 can make the match ambiguous.
+    origin_max_mismatch: int = 0
+    # Orient contigs on the strand of the best reference genome (species step); the motif then
+    # places the origin on that strand only, which avoids palindromic double hits. Without a
+    # usable motif the contig starts where the reference starts.
+    orient_by_reference: bool = False
     min_orf_aa: int = 60
     # Source modifiers written into FASTA deflines, e.g. {host: Manihot esculenta, country: ...}
     metadata: dict[str, str] = {}

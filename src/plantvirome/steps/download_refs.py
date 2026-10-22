@@ -17,12 +17,18 @@ EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
 BATCH = 100
 
 
+B_TITLE = re.compile(r"\bDNA[ _-]?B\b|\bDNA[ _-]?2\b|\b(?:segment|component)[ _-]?B\b|\bBR1\b|\bBL1\b",
+                     re.IGNORECASE)
+
+
 def component(title: str) -> str:
-    """A = DNA-A or a monopartite genome (used for species demarcation)."""
-    t = title.lower()
-    if "dna-b" in t or "dna b" in t:
+    """A = DNA-A or a monopartite genome (used for species demarcation); B = DNA-B.
+    Derived from the RefSeq title, which names the second component inconsistently
+    (DNA-B, DNA B, DNA_B, DNA2, segment B, gene names): records with no hint count as A,
+    so a few unlabelled DNA-B references may still be taken for A."""
+    if B_TITLE.search(title):
         return "B"
-    if "satellite" in t:
+    if "satellite" in title.lower():
         return "satellite"
     return "A"
 

@@ -23,24 +23,32 @@ def revcomp(seq: str) -> str:
     return seq.translate(COMP)[::-1]
 
 
-def orient_and_rotate(seq: str, motif: str, offset: int) -> tuple[str, str]:
+def orient_and_rotate(seq: str, motif: str, offset: int, max_mismatch: int = 0,
+                      both_strands: bool = True) -> tuple[str, str]:
     """Rotate a circular sequence to start at motif[offset]; returns (seq, note).
-    Needs exactly one motif occurrence across both strands, otherwise leaves it as is."""
+    Looks for exact matches first, then up to max_mismatch substitutions (consensus errors);
+    needs exactly one occurrence at the best level across both strands, else leaves it as is."""
     n, m = len(seq), len(motif)
-    hits = []
-    for strand, s in (("+", seq), ("-", revcomp(seq))):
-        ext = s + s[:m - 1]
-        pos = ext.find(motif)
-        while pos != -1 and pos < n:
-            hits.append((strand, s, pos))
-            pos = ext.find(motif, pos + 1)
-    if not hits:
+    for k in range(max_mismatch + 1):
+        hits = []
+        for s in ((seq, revcomp(seq)) if both_strands else (seq,)):
+            ext = s + s[:m - 1]
+            hits += [(s, i) for i in range(n) if sum(a != b for a, b in zip(ext[i:i + m], motif)) == k]
+        if hits:
+            break
+    else:
         return seq, "origin_not_found"
     if len(hits) > 1:
         return seq, "origin_ambiguous"
-    _, s, pos = hits[0]
+    s, pos = hits[0]
     start = (pos + offset) % n
-    return s[start:] + s[:start], "origin_ok"
+    return s[start:] + s[:start], "origin_ok" if k == 0 else "origin_approx"
+
+
+def rotate_to_reference(seq: str, strand: str, origin: int) -> str:
+    """Orient and rotate a circular contig so it starts where its reference starts."""
+    s = revcomp(seq) if strand == "-" else seq
+    return s[origin:] + s[:origin]
 
 
 def find_orfs(seq: str, min_aa: int) -> list[dict]:
@@ -73,6 +81,10 @@ def organism(row: dict, sp: dict | None = None, taxon: str | None = None) -> tup
     call (species step) wins over the protein-level classification."""
     if sp and sp.get("call") == "known_species":
         return sp["species"], None
+    if sp and sp.get("call") == "other_component" and sp.get("species"):
+        # DNA-B and satellites: protein hits cannot tell closely related species apart, so use
+        # the nearest reference of that component; its cognate DNA-A decides the true species
+        return sp["species"], "organism_from_nearest_component_reference"
     if sp and sp.get("call") == "novel_species_candidate" and taxon:
         return f"{taxon} sp.", "novel_species_candidate"
     name, rank = row.get("name", ""), row.get("rank", "")
@@ -114,6 +126,8 @@ def run_genbank(cfg: Config, sampledir: Path, force: bool = False) -> None:
     ab = _rows(sampledir / "abundance" / "abundance.tsv", "contig")
     spec = _rows(sampledir / "species" / "species.tsv", "contig")
     meta = load_metadata(g, sample)
+    # contigs whose vOTU is also in a negative control (written by the diversity step)
+    contam = _rows(sampledir.parent / "cohort" / "diversity" / "contamination.tsv", "contig")
 
     qc_rows, fsa, tbl, faa = [], [], [], []
     for contig, seq in seqs.items():
@@ -121,6 +135,7 @@ def run_genbank(cfg: Config, sampledir: Path, force: bool = False) -> None:
         circ = info.get(contig, {}).get("circular") == "True"
         t = tax.get(contig, {})
         a = ab.get(contig, {})
+        sp = spec.get(contig)
         n_frac = sum(c not in "ACGT" for c in seq) / len(seq)
         depth = float(a.get("mean_depth", 0) or 0)
         # chimeric reads are not assigned to any contig, so compare with all reads touching it
@@ -134,9 +149,14 @@ def run_genbank(cfg: Config, sampledir: Path, force: bool = False) -> None:
             reject.append("too_many_ambiguous_bases")
         if depth < g.min_depth:
             reject.append("low_depth")
+        if contam.get(contig, {}).get("flag") == "possible_contamination":
+            review.append("possible_blank_contamination")
+        if sp and "partial_genome" in sp.get("caveat", ""):
+            review.append("shorter_than_reference")
+        if sp and sp.get("call") == "no_reference_match":     # species step ran: no genome-like match
+            review.append("no_reference_genome_match")
         if len(seqid) > SEQID_MAX:
             reject.append("seqid_too_long")
-        sp = spec.get(contig)
         # a nucleotide match to the reference genus is as good as a protein-tier hit
         if t.get("tier", "unclassified") not in g.allowed_tiers and not (
                 sp and sp["call"] in ("known_species", "novel_species_candidate")):
@@ -153,10 +173,27 @@ def run_genbank(cfg: Config, sampledir: Path, force: bool = False) -> None:
         if sp and sp["caveat"]:
             notes.append("species_" + sp["caveat"].replace(",", ",species_"))
         note = ""
-        if circ and g.origin_motif and not reject:
-            seq, note = orient_and_rotate(seq, g.origin_motif, g.origin_offset)
-            if note != "origin_ok":
-                review.append(note)
+        if circ and not reject:
+            ref_strand = sp.get("ref_strand") if g.orient_by_reference and sp else None
+            if ref_strand:   # the reference fixes the strand; the motif then places the origin
+                oriented = revcomp(seq) if ref_strand == "-" else seq
+                note = "origin_not_found"
+                if g.origin_motif:
+                    rotated, note = orient_and_rotate(oriented, g.origin_motif, g.origin_offset,
+                                                      g.origin_max_mismatch, both_strands=False)
+                if note in ("origin_ok", "origin_approx"):
+                    seq = rotated
+                else:    # no usable motif: start where the reference starts
+                    seq = rotate_to_reference(seq, ref_strand, int(sp["ref_origin"]))
+                    note = "origin_from_reference"
+                if note != "origin_ok":
+                    notes.append(note)
+            elif g.origin_motif:
+                seq, note = orient_and_rotate(seq, g.origin_motif, g.origin_offset, g.origin_max_mismatch)
+                if note == "origin_approx":
+                    notes.append(note)
+                elif note != "origin_ok":
+                    review.append(note)
         status = "reject" if reject else "review" if review else "submit"
         n_orfs = 0
         if status == "submit":

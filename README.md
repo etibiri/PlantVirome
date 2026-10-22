@@ -104,8 +104,8 @@ Unknown keys are rejected. Validate with `plantvirome validate-config my.yaml`.
 | `classify` | `evalue` 1e-5, `sensitivity` sensitive, `top_pct` 10, `tiers` close ≥85 / related ≥60 / distant ≥35 (protein identity %) |
 | `species` | `reference` (none = step skipped), `taxon`, `species_threshold` 0.91, `strain_threshold` none (begomovirus: 0.94), `min_cover` 0.8, `borderline_margin` 0.01 |
 | `abundance` | `min_identity` 0.8, `min_read_cover` 0.5, `min_breadth` 0.9, `chimera_min_frac` 0.2 |
-| `diversity` | `cluster_identity` 0.90, `cluster_min_cover` 0.80 |
-| `genbank` | `min_length` 200, `max_n_fraction` 0.01, `min_depth` 20, `allowed_tiers`, `submit_partial` false, `origin_motif`/`origin_offset`, `min_orf_aa` 60, `metadata`, `metadata_csv` |
+| `diversity` | `cluster_identity` 0.90, `cluster_min_cover` 0.80, `exclude_unclassified` false, `blanks` [], `blank_ratio` 10 |
+| `genbank` | `min_length` 200, `max_n_fraction` 0.01, `min_depth` 20, `allowed_tiers`, `submit_partial` false, `origin_motif`/`origin_offset`/`origin_max_mismatch` 0, `orient_by_reference` false, `min_orf_aa` 60, `metadata`, `metadata_csv` |
 | `variety` | `min_depth` 10, `min_alt_frac` 0.8, `complete_breadth` 0.9 |
 | `slurm` | `partition`, `account`, `setup` (shell lines), `default` and per-`steps` `cpus`/`mem_gb`/`time` |
 
@@ -113,8 +113,9 @@ Unknown keys are rejected. Validate with `plantvirome validate-config my.yaml`.
 
 Layout: `results/<sample>/<step>/`.
 
-**qc** — `porechop_abi` adapter trimming (no internal splitting) and `chopper` length/quality
-filter. Outputs `reads.qc.fastq.gz`, `stats.json`. *Do not set `max_length` low*: concatemers
+**qc** — `porechop_abi` adapter trimming (no internal splitting; set `trim_adapters: false`
+for dorado output that already trimmed adapters and barcodes, since the ab-initio adapter search
+takes many minutes per 100k reads) and `chopper` length/quality filter. Outputs `reads.qc.fastq.gz`, `stats.json`. *Do not set `max_length` low*: concatemers
 of 10–30 kb are the signal. Do not raise `min_quality` much; later steps use the extra copies
 to correct errors.
 
@@ -182,10 +183,23 @@ RNA viruses are missed); Chao1 treats reads as individuals, which concatemers vi
 it as a rough lower bound); richness depends on the identity threshold; no rarefaction
 is applied, so compare samples of very different depth with care.
 
+**Negative controls** — name them in `diversity.blanks`. They go through every step, are
+clustered with the samples, and are left out of alpha/beta diversity. `contamination.tsv`
+lists, for each contig whose vOTU is also in a blank, the ratio of its depth to the blank's;
+below `blank_ratio` (10×) it is flagged `possible_contamination`, and `genbank` then sends
+the contig to review. Run `diversity` before `genbank` so the file exists. A ratio is only a
+screen: index hopping from a high-titre sample into the blank looks the same as
+contamination, so check the flagged vOTUs against the barcodes next to them.
+
 **genbank** — per-contig status `submit` / `review` / `reject` with reasons in
 `contigs.qc.tsv`. Checks: length, ambiguous bases, depth, ID length (≤ 25), taxonomy tier,
 circularity, chimeric-read share, origin found exactly once. Circular genomes are rotated
-(either strand) to start at `origin_motif[origin_offset]`. ORFs come from `pyrodigal-gv`;
+to start at `origin_motif[origin_offset]`. With `orient_by_reference` the strand is taken from the
+best reference genome (species step) and the motif is searched on that strand only; this avoids
+the double hit of palindromic motifs (the begomovirus nonanucleotide `TAATATTA` is its own
+reverse complement) and makes `origin_max_mismatch: 1` usable for consensus errors. If the motif
+is not unique the contig starts where the reference starts (`origin_from_reference` note).
+Without reference orientation both strands are searched. ORFs come from `pyrodigal-gv`;
 `features.tbl` lists genes/CDS as "hypothetical protein" (`orf1`, `orf2`, …) because no
 curated gene names are shipped. `submission.fsa` has table2asn-style definition lines
 with `[organism=…][moltype=genomic][molecule=DNA][topology=…]` plus your `metadata`.

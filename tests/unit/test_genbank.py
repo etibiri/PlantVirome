@@ -88,3 +88,65 @@ def test_organism_prefers_species_call():
     assert organism(tax, {"call": "novel_species_candidate"}, "Begomovirus") == \
         ("Begomovirus sp.", "novel_species_candidate")
     assert organism(tax, {"call": "no_reference_match"}, "Begomovirus")[0] == "Begomovirus sp."
+
+
+def test_origin_with_mismatch():
+    # non-palindromic motif; a random 9-mer has a 1-mismatch decoy about half the time
+    # (-> ambiguous), so look for a genome where the damaged motif is the only hit
+    motif = "ACGGTCATC"
+    for seed in range(30):
+        rng = random.Random(seed)
+        g = rand_seq(rng, 2700)
+        g = g[:1000] + motif + g[1009:]
+        bad = g[:1000] + "ACGGTCATG" + g[1009:]
+        if orient_and_rotate(bad, motif, 4)[1] != "origin_not_found":
+            continue
+        seq, note = orient_and_rotate(bad, motif, 4, max_mismatch=1)
+        if note == "origin_approx":
+            assert seq.startswith("TCATG")
+            assert orient_and_rotate(g, motif, 4, max_mismatch=1)[1] == "origin_ok"   # exact hit wins
+            return
+        assert note == "origin_ambiguous"
+    raise AssertionError("no seed gave a unique 1-mismatch hit")
+
+
+def test_palindromic_motif_is_ambiguous_after_one_error():
+    """TAATATTA is its own reverse complement, so a damaged begomovirus nonanucleotide matches
+    on both strands at the same site: use orient_by_reference instead of origin_max_mismatch."""
+    g = genome(random.Random(1), orf=False)
+    bad = g.replace(MOTIF, "TAATATTAG")
+    assert orient_and_rotate(bad, MOTIF, 7, max_mismatch=1)[1] == "origin_ambiguous"
+
+
+def test_run_genbank_orients_by_reference(tmp_path):
+    """Reverse-complemented contig with a damaged (palindromic) motif: the reference strand
+    plus a 1-mismatch search on that strand only gives a unique, correctly oriented origin."""
+    rng = random.Random(3)
+    good = genome(rng)
+    true_start = good[1007:] + good[:1007]                      # starts at "AC..."
+    damaged = good.replace(MOTIF, "TAATATTAG")
+    contig = revcomp(damaged)
+    s = tmp_path / "s1"
+    for d in ("assemble", "classify", "abundance", "species"):
+        (s / d).mkdir(parents=True)
+    (s / "assemble" / "contigs.fasta").write_text(f">s1_c1\n{contig}\n")
+    (s / "assemble" / "contigs.tsv").write_text(
+        "contig\tlength\tcoverage\tcircular\tcirc_support\ns1_c1\t2700\t90\tTrue\t5\n")
+    (s / "abundance" / "abundance.tsv").write_text(
+        "contig\tlength\treads\tmean_depth\tdepth_cv\tbreadth\tdetected\trel_abundance\tchimeric_reads\n"
+        "s1_c1\t1\t50\t100\t0.1\t1\tTrue\t1\t0\n")
+    (s / "species" / "species.tsv").write_text(
+        "contig\tlength\tbest_ref\tspecies\ttaxid\tcomponent\tidentity\tcover\tcall\tcaveat\tref_strand\tref_origin\n"
+        "s1_c1\t2700\tR1\tX virus\t1\tA\t0.95\t1.00\tknown_species\t\t-\t0\n")
+    cfg = Config.model_validate({"genbank": {"origin_motif": MOTIF, "origin_offset": 7, "origin_max_mismatch": 1,
+                                             "orient_by_reference": True}})
+    run_genbank(cfg, s)
+    seq = (s / "genbank" / "submission.fsa").read_text().splitlines()[1]
+    assert seq.startswith("AG") and seq[2:50] == true_start[2:50]   # damaged base kept, origin right
+    assert "origin_approx" in (s / "genbank" / "contigs.qc.tsv").read_text()
+
+
+def test_organism_for_other_component_uses_nearest_reference():
+    tax = {"name": "Begomovirus manihotisburkinafasoense", "rank": "species"}   # protein-level guess
+    sp = {"call": "other_component", "species": "Begomovirus manihotis"}
+    assert organism(tax, sp, "Begomovirus") == ("Begomovirus manihotis", "organism_from_nearest_component_reference")

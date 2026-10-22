@@ -47,7 +47,7 @@ def cluster(paf: Path, lengths: dict[str, int], min_identity: float, min_cover: 
 
     for (q, t), (aligned, matches, block) in pairs.items():
         if block and matches / block >= min_identity \
-                and min(1.0, aligned / min(lengths[q], lengths[t])) >= min_cover:
+                and min(1.0, aligned / max(lengths[q], lengths[t])) >= min_cover:
             parent[find(q)] = find(t)
     groups: dict[str, list[str]] = defaultdict(list)
     for c in lengths:
@@ -97,6 +97,34 @@ def _write_matrix(path: Path, names: list[str], m: np.ndarray) -> None:
             fh.write(n + "\t" + "\t".join(f"{v:.4f}" for v in row) + "\n")
 
 
+def identified_contigs(sampledir: Path) -> set[str]:
+    """Contigs with a protein-level tier or a nucleotide-level species call."""
+    ok = set()
+    for step, file, col, bad in (("classify", "taxonomy.tsv", "tier", {"unclassified"}),
+                                 ("species", "species.tsv", "call", {"no_reference_match"})):
+        path = sampledir / step / file
+        if path.exists():
+            with open(path) as fh:
+                ok |= {r["contig"] for r in csv.DictReader(fh, delimiter="\t") if r[col] not in bad}
+    return ok
+
+
+def write_contamination(path: Path, samples, blanks, real, ids, votu, contigs, depth, depth_t,
+                        ratio: float) -> None:
+    """Contigs whose vOTU is also in a blank: flag when sample depth < ratio x blank depth."""
+    blank_depth = depth_t[blanks].sum(axis=0)
+    with open(path, "w") as fh:
+        fh.write("contig\tsample\tvotu\tcontig_depth\tvotu_blank_depth\tdepth_ratio\tflag\n")
+        for c, v in sorted(votu.items()):
+            s = contigs[c][0]
+            b = blank_depth[ids.index(v)]
+            if s in {samples[i] for i in blanks} or b == 0:
+                continue
+            sample_ratio = depth_t[samples.index(s), ids.index(v)] / b
+            fh.write(f"{c}\t{s}\t{v}\t{depth[c]:.2f}\t{b:.2f}\t{sample_ratio:.1f}\t"
+                     f"{'possible_contamination' if sample_ratio < ratio else 'ok'}\n")
+
+
 def run_diversity(cfg: Config, outdir: Path, samples: list[str] | None, threads: int,
                   force: bool = False) -> None:
     out = outdir / "cohort" / "diversity"
@@ -111,9 +139,11 @@ def run_diversity(cfg: Config, outdir: Path, samples: list[str] | None, threads:
     contigs, lengths, depth, reads = {}, {}, {}, {}
     for s in samples:
         seqs = read_fasta(outdir / s / "assemble" / "contigs.fasta")
+        keep = identified_contigs(outdir / s) if cfg.diversity.exclude_unclassified else None
         with open(outdir / s / "abundance" / "abundance.tsv") as fh:
             for r in csv.DictReader(fh, delimiter="\t"):
-                if r["detected"] == "True":
+                if (r["detected"] == "True" and int(r["length"]) >= cfg.diversity.min_contig_length
+                        and (keep is None or r["contig"] in keep)):
                     contigs[r["contig"]] = (s, seqs[r["contig"]])
                     lengths[r["contig"]] = int(r["length"])
                     depth[r["contig"]], reads[r["contig"]] = float(r["mean_depth"]), int(r["reads"])
@@ -155,15 +185,20 @@ def run_diversity(cfg: Config, outdir: Path, samples: list[str] | None, threads:
         fh.writelines(f"{c}\t{v}\t{contigs[c][0]}\n" for c, v in sorted(votu.items()))
     allfa.unlink()
 
-    rows = [alpha(depth_t[i], reads_t[i]) for i in range(len(samples))]
+    blanks = [i for i, s in enumerate(samples) if s in d.blanks]
+    real = [i for i in range(len(samples)) if i not in blanks]     # negative controls are not analysed
+    if blanks:
+        write_contamination(out / "contamination.tsv", samples, blanks, real, ids, votu, contigs,
+                            depth, depth_t, d.blank_ratio)
+    rows = [alpha(depth_t[i], reads_t[i]) for i in real]
     with open(out / "alpha.tsv", "w") as fh:
         keys = list(rows[0])
         fh.write("sample\t" + "\t".join(keys) + "\n")
-        for s, r in zip(samples, rows):
+        for s, r in zip([samples[i] for i in real], rows):
             fh.write(s + "\t" + "\t".join("NA" if isinstance(r[k], float) and math.isnan(r[k])
                                           else f"{r[k]:.4g}" for k in keys) + "\n")
 
-    keep = [i for i in range(len(samples)) if depth_t[i].sum() > 0]
+    keep = [i for i in real if depth_t[i].sum() > 0]
     names = [samples[i] for i in keep]
     if len(keep) >= 2:
         dists = beta(depth_t[keep])
