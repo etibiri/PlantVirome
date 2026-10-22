@@ -263,7 +263,10 @@ def satellite(
 def download_refs(
     taxon: str = typer.Option(..., help="Genus or other taxon name, e.g. Begomovirus."),
     outdir: Path = typer.Option(Path("db/refs")),
+    extra: list[str] = typer.Option([], help="Non-RefSeq accession to add, ACC or ACC=SPECIES_TAXID "
+                                    "(repeatable), e.g. AJ717531.1=62079."),
 ) -> None:
     """Download RefSeq reference genomes of a taxon for the species step."""
-    fasta = download_refs_step.run_download_refs(taxon, outdir)
+    acc = {a.partition("=")[0]: int(a.partition("=")[2] or 0) or None for a in extra}
+    fasta = download_refs_step.run_download_refs(taxon, outdir, acc)
     typer.echo(f"Add to your config:\nspecies:\n  reference: {fasta.resolve()}\n  taxon: {taxon}")

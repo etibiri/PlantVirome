@@ -51,7 +51,9 @@ def fasta_records(text: str) -> dict[str, str]:
     return {k: "".join(v) for k, v in recs.items()}
 
 
-def run_download_refs(taxon: str, outdir: Path) -> Path:
+def run_download_refs(taxon: str, outdir: Path, extra: dict[str, int | None] | None = None) -> Path:
+    """`extra`: non-RefSeq accessions to add (e.g. isolates from INSDC) -> species taxid to
+    label them with (None = the record's own organism, often a strain-level taxon)."""
     outdir.mkdir(parents=True, exist_ok=True)
     term = f'"{taxon}"[Organism:exp] AND srcdb_refseq[PROP] AND biomol_genomic[PROP]'
     ids = json.loads(_get("esearch.fcgi", db="nuccore", term=term, retmax=10000,
@@ -74,9 +76,23 @@ def run_download_refs(taxon: str, outdir: Path) -> Path:
                 # no spaces in the header: minimap2 and FASTA readers keep only the first word
                 fa.write(f">{acc}|{species.replace(' ', '_')}|{r['taxid']}|{comp}\n{seqs[acc]}\n")
                 rows.append((acc, species, r["taxid"], comp, r["slen"], r["title"]))
+        for acc, taxid in (extra or {}).items():
+            summ = json.loads(_get("esummary.fcgi", db="nuccore", id=acc, retmode="json"))["result"]
+            r = summ[summ["uids"][0]]
+            acc = r["accessionversion"]
+            name, tid = r["organism"], r["taxid"]
+            if taxid:
+                tax = json.loads(_get("esummary.fcgi", db="taxonomy", id=taxid, retmode="json"))["result"]
+                name, tid = tax[str(taxid)]["scientificname"], taxid
+            seq = fasta_records(_get("efetch.fcgi", db="nuccore", id=acc, rettype="fasta",
+                                     retmode="text"))[acc]
+            species, comp = re.sub(r"[|\s]+", " ", name).strip(), component(r["title"])
+            fa.write(f">{acc}|{species.replace(' ', '_')}|{tid}|{comp}\n{seq}\n")
+            rows.append((acc, species, tid, comp, r["slen"], r["title"]))
     with open(outdir / "refs.tsv", "w") as fh:
         fh.write("accession\tspecies\ttaxid\tcomponent\tlength\ttitle\n")
         fh.writelines("\t".join(map(str, r)) + "\n" for r in rows)
     (outdir / "download.json").write_text(json.dumps(
-        {"date": time.strftime("%Y-%m-%d"), "taxon": taxon, "query": term, "records": len(rows)}, indent=2))
+        {"date": time.strftime("%Y-%m-%d"), "taxon": taxon, "query": term, "extra": list(extra or {}),
+         "records": len(rows)}, indent=2))
     return outdir / "refs.fasta"

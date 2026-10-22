@@ -86,6 +86,9 @@ Fetches the RefSeq genomes of a taxon from NCBI (Entrez) into `refs.fasta`
 (`accession|species|taxid|component`, component `A` = DNA-A or monopartite, `B` = DNA-B,
 `satellite`), plus `refs.tsv` and `download.json`. Point `species.reference` at `refs.fasta`.
 Without it the `species` step is skipped and nothing else changes.
+`--extra ACC=TAXID` (repeatable) adds non-RefSeq records, labelled with the species taxid
+`TAXID` (without it, the record's own, often strain-level, taxon), e.g.
+`--extra AJ717531.1=62079 --extra AJ704962.1=62079` for EACMV isolates.
 
 ### Configuration
 
