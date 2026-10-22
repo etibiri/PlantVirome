@@ -6,3 +6,5 @@ db/
 tmp/
 results*/
 20*_*_*/
+*.sif
+*.tar
