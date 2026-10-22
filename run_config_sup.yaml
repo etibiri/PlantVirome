@@ -30,3 +30,20 @@ diversity:
   exclude_unclassified: true   # leave out contigs with no protein tier and no species call
   blanks: [barcode48]
   blank_ratio: 10
+satellite:
+  groups:
+    alphasatellite:
+      reference: /home/etibiri/Documents/2026/cassava/db/alphasatellite/refs.fasta
+      species_threshold: 0.88      # ICTV Geminialphasatellitinae (Nanoalphasatellitinae: 0.80); verify
+      min_length: 1000
+      max_length: 1700
+    betasatellite:
+      reference: /home/etibiri/Documents/2026/cassava/db/betasatellite/refs.fasta
+      species_threshold: 0.91      # ICTV Tolecusatellitidae; verify
+      min_length: 1000
+      max_length: 1700
+    deltasatellite:
+      reference: /home/etibiri/Documents/2026/cassava/db/deltasatellite/refs.fasta
+      species_threshold: 0.91
+      min_length: 600
+      max_length: 1000

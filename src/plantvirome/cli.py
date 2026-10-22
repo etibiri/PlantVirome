@@ -16,6 +16,7 @@ from .steps import variety as variety_step
 from .steps import download_db as download_db_step
 from .steps import download_refs as download_refs_step
 from .steps import rca as rca_step
+from .steps import satellite as satellite_step
 from .steps import species as species_step
 from .steps import qc as qc_step
 from .slurm import submit as slurm_submit
@@ -204,6 +205,7 @@ def run(
         "assemble": lambda: assemble_step.run_assemble(cfg, sd, threads, force),
         "classify": lambda: classify_step.run_classify(cfg, sd, threads, force),
         "species": lambda: species_step.run_species(cfg, sd, threads, force),
+        "satellite": lambda: satellite_step.run_satellite(cfg, sd, threads, force),
         "abundance": lambda: abundance_step.run_abundance(cfg, sd, threads, force),
         "diversity": lambda: diversity_step.run_diversity(cfg, outdir, [sample], threads, force),
         "genbank": lambda: genbank_step.run_genbank(cfg, sd, force),
@@ -242,6 +244,19 @@ def species(
     """Species assignment of contigs by nucleotide identity to reference genomes."""
     cfg = load_config(config)
     species_step.run_species(cfg, outdir / sample, threads or cfg.threads, force)
+
+
+@app.command()
+def satellite(
+    config: Path = typer.Option(..., exists=True),
+    outdir: Path = typer.Option(Path("results")),
+    sample: str = typer.Option(...),
+    threads: int = typer.Option(None),
+    force: bool = typer.Option(False, help="Re-run even if already done."),
+) -> None:
+    """Detect satellite DNAs (alpha-, betasatellites ...) among the contigs."""
+    cfg = load_config(config)
+    satellite_step.run_satellite(cfg, outdir / sample, threads or cfg.threads, force)
 
 
 @app.command("download-refs")

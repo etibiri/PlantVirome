@@ -101,7 +101,8 @@ def identified_contigs(sampledir: Path) -> set[str]:
     """Contigs with a protein-level tier or a nucleotide-level species call."""
     ok = set()
     for step, file, col, bad in (("classify", "taxonomy.tsv", "tier", {"unclassified"}),
-                                 ("species", "species.tsv", "call", {"no_reference_match"})):
+                                 ("species", "species.tsv", "call", {"no_reference_match"}),
+                                 ("satellite", "satellites.tsv", "call", {"protein_only_candidate"})):
         path = sampledir / step / file
         if path.exists():
             with open(path) as fh:

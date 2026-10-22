@@ -96,11 +96,14 @@ def call(hits: dict[str, tuple[float, float, float]], refs: dict[str, dict], sp:
     return out
 
 
-def read_refs(path: Path) -> dict[str, dict]:
+def read_refs(path: Path, component: str | None = None) -> dict[str, dict]:
+    """Reference headers -> metadata. `component` overrides the header's component label
+    (the satellite step treats every reference as a complete genome)."""
     refs = {}
     for header in read_fasta(path):
-        acc, species, taxid, component = header.split("|")
-        refs[header] = {"acc": acc, "species": species.replace("_", " "), "taxid": taxid, "component": component}
+        acc, species, taxid, comp = header.split("|")
+        component_ = component or comp
+        refs[header] = {"acc": acc, "species": species.replace("_", " "), "taxid": taxid, "component": component_}
     return refs
 
 

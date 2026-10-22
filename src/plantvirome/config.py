@@ -6,7 +6,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 # Execution order; each name maps to a `plantvirome <name>` subcommand.
-STEPS = ["qc", "hostdeplete", "rca", "assemble", "classify", "species",
+STEPS = ["qc", "hostdeplete", "rca", "assemble", "classify", "species", "satellite",
          "abundance", "diversity", "genbank", "variety"]
 # Steps that run once for the whole cohort instead of once per sample.
 COHORT_STEPS = {"diversity"}
@@ -102,6 +102,28 @@ class Species(_Strict):
     min_ref_cover: float = 0.8
 
 
+class SatelliteGroup(_Strict):
+    # FASTA made by `plantvirome download-refs` for one satellite taxon (e.g. Alphasatellitidae).
+    reference: Path
+    # Nucleotide identity at/above which a contig is the same species as its nearest reference.
+    # ICTV (verify the current criteria): alphasatellites 0.88 (Geminialphasatellitinae) or
+    # 0.80 (Nanoalphasatellitinae); betasatellites and deltasatellites 0.91. None = report the
+    # identity only (satellite_related), no species call.
+    species_threshold: float | None = None
+    # Contig length window searched against this group (alpha/betasatellites are ~1.3-1.4 kb).
+    min_length: int = 1000
+    max_length: int = 2000
+
+
+class Satellite(_Strict):
+    # Optional: {group_name: SatelliteGroup}. The step is skipped when empty.
+    groups: dict[str, SatelliteGroup] = {}
+    min_cover: float = 0.8
+    min_partial_cover: float = 0.3
+    min_ref_cover: float = 0.8
+    borderline_margin: float = 0.01
+
+
 class Abundance(_Strict):
     min_identity: float = 0.8
     # A read is assigned to a contig only if >= min_read_cover of it aligns there.
@@ -189,6 +211,7 @@ class Config(_Strict):
     assemble: Assemble = Assemble()
     classify: Classify = Classify()
     species: Species = Species()
+    satellite: Satellite = Satellite()
     abundance: Abundance = Abundance()
     diversity: Diversity = Diversity()
     genbank: GenBank = GenBank()

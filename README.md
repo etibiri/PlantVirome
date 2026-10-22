@@ -8,7 +8,7 @@ virus-specific parameters (genome size range, origin motif, species threshold) l
 Pipeline (one subcommand per step, each resumable through a `.done` marker):
 
 ```
-qc → hostdeplete → rca → assemble → classify → species → abundance → genbank   (per sample)
+qc → hostdeplete → rca → assemble → classify → species → satellite → abundance → genbank   (per sample)
                                                └→ diversity            (once, all samples)
                                     variety (optional, host organelle markers)
 ```
@@ -48,7 +48,7 @@ plantvirome submit --config my.yaml --outdir results --sample s1 --sample s2
 plantvirome diversity --config my.yaml --outdir results
 ```
 
-Individual steps: `plantvirome qc|hostdeplete|rca|assemble|classify|species|abundance|genbank|variety
+Individual steps: `plantvirome qc|hostdeplete|rca|assemble|classify|species|satellite|abundance|genbank|variety
 --config … --outdir … --sample …` (`--force` reruns a finished step).
 Logs are JSON lines (one object per event) on stderr; under Slurm they land in
 `results/slurm/logs/`.
@@ -103,6 +103,7 @@ Unknown keys are rejected. Validate with `plantvirome validate-config my.yaml`.
 | `assemble` | `method` units/flye, `flye_mode` nano-hq, `flye_reads` nonhost/qc, `flye_max_bases` 20000000, `flye_collapse_multimers` true; units method: `min_identity` 0.85, `min_cover` 0.9, `min_cluster_units` 3, `min_units` 20, `circ_min_support` 3 |
 | `classify` | `evalue` 1e-5, `sensitivity` sensitive, `top_pct` 10, `tiers` close ≥85 / related ≥60 / distant ≥35 (protein identity %) |
 | `species` | `reference` (none = step skipped), `taxon`, `species_threshold` 0.91, `strain_threshold` none (begomovirus: 0.94), `min_cover` 0.8, `borderline_margin` 0.01 |
+| `satellite` | `groups` {name: `reference`, `species_threshold`, `min_length`, `max_length`}, `min_cover` 0.8, `min_ref_cover` 0.8 |
 | `abundance` | `min_identity` 0.8, `min_read_cover` 0.5, `min_breadth` 0.9, `chimera_min_frac` 0.2 |
 | `diversity` | `cluster_identity` 0.90, `cluster_min_cover` 0.80, `exclude_unclassified` false, `blanks` [], `blank_ratio` 10 |
 | `genbank` | `min_length` 200, `max_n_fraction` 0.01, `min_depth` 20, `allowed_tiers`, `submit_partial` false, `origin_motif`/`origin_offset`/`origin_max_mismatch` 0, `orient_by_reference` false, `min_orf_aa` 60, `metadata`, `metadata_csv` |
@@ -167,6 +168,22 @@ every member of a species. **Confirm every borderline and novel call with a mult
 (e.g. SDT or MAFFT) and the current ICTV criteria** before naming anything. The species name is
 the NCBI organism of the closest reference (can be a strain-level taxon, or a new ICTV binomial
 such as *Begomovirus manihotis*). `genbank` uses a species call for the organism name.
+
+**satellite** (optional) — satellite DNAs (alpha-, beta-, deltasatellites) are circular, 1 to 1.4 kb
+and share little with the helper virus, so they get their own step. Build one reference set per
+group (`plantvirome download-refs --taxon Alphasatellitidae --outdir db/alphasatellite`, likewise
+`Tolecusatellitidae` for betasatellites and `Deltasatellite`) and list them under
+`satellite.groups` with a length window and a species threshold. Contigs inside a group's window
+are aligned to its references and called `known_satellite`, `novel_satellite_candidate`
+(below the threshold), or `satellite_related` (group without a threshold); contigs the protein
+search put in a satellite family but with no nucleotide match are `protein_only_candidate`.
+`species.tsv`-style columns, including the reference start used by `genbank` for orientation.
+ICTV species thresholds (check the current criteria): alphasatellites 88 % (Geminialphasatellitinae)
+or 80 % (Nanoalphasatellitinae), betasatellites and deltasatellites 91 %. Limits: nucleotide search
+finds satellites down to roughly 85 % identity to a reference; divergent alphasatellites show up
+only through their Rep protein, and betasatellites (one short protein) mostly not at all.
+A 1 to 2 kb circular contig is not evidence of a satellite: defective DNAs and phi29 artifacts
+fall in the same window.
 
 **abundance** — reads re-mapped to contigs; abundance is **mean depth** (aligned bases /
 length), not read counts, because a concatemer carries many copies. Reports breadth,

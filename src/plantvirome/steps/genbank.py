@@ -17,6 +17,16 @@ from .assemble import read_fasta
 
 COMP = str.maketrans("ACGTacgt", "TGCAtgca")
 SEQID_MAX = 25  # GenBank limit
+SAT_CALLS = ("known_satellite", "novel_satellite_candidate", "satellite_related")
+
+
+def satellite_as_species(sat: dict) -> dict:
+    """Present a satellite call in the shape the species-based code expects. Only a known
+    satellite species gets a name; novel or unthresholded ones go to review."""
+    known = sat["call"] == "known_satellite"
+    return {"call": "known_species" if known else "satellite_unresolved", "species": sat["species"],
+            "caveat": sat["caveat"], "ref_strand": sat["ref_strand"], "ref_origin": sat["ref_origin"],
+            "is_satellite": True}
 
 
 def revcomp(seq: str) -> str:
@@ -81,6 +91,8 @@ def organism(row: dict, sp: dict | None = None, taxon: str | None = None) -> tup
     call (species step) wins over the protein-level classification."""
     if sp and sp.get("call") == "known_species":
         return sp["species"], None
+    if sp and sp.get("call") == "satellite_unresolved":
+        return "uncultured satellite", "organism_unresolved"
     if sp and sp.get("call") == "other_component" and sp.get("species"):
         # DNA-B and satellites: protein hits cannot tell closely related species apart, so use
         # the nearest reference of that component; its cognate DNA-A decides the true species
@@ -125,6 +137,7 @@ def run_genbank(cfg: Config, sampledir: Path, force: bool = False) -> None:
     tax = _rows(sampledir / "classify" / "taxonomy.tsv", "contig")
     ab = _rows(sampledir / "abundance" / "abundance.tsv", "contig")
     spec = _rows(sampledir / "species" / "species.tsv", "contig")
+    sats = _rows(sampledir / "satellite" / "satellites.tsv", "contig")
     meta = load_metadata(g, sample)
     # contigs whose vOTU is also in a negative control (written by the diversity step)
     contam = _rows(sampledir.parent / "cohort" / "diversity" / "contamination.tsv", "contig")
@@ -136,6 +149,9 @@ def run_genbank(cfg: Config, sampledir: Path, force: bool = False) -> None:
         t = tax.get(contig, {})
         a = ab.get(contig, {})
         sp = spec.get(contig)
+        sat = sats.get(contig)
+        if sat and sat["call"] in SAT_CALLS and (not sp or sp["call"] == "no_reference_match"):
+            sp = satellite_as_species(sat)      # a satellite: the satellite step names it
         n_frac = sum(c not in "ACGT" for c in seq) / len(seq)
         depth = float(a.get("mean_depth", 0) or 0)
         # chimeric reads are not assigned to any contig, so compare with all reads touching it
@@ -188,7 +204,7 @@ def run_genbank(cfg: Config, sampledir: Path, force: bool = False) -> None:
                     note = "origin_from_reference"
                 if note != "origin_ok":
                     notes.append(note)
-            elif g.origin_motif:
+            elif g.origin_motif and not (sp and sp.get("is_satellite")):
                 seq, note = orient_and_rotate(seq, g.origin_motif, g.origin_offset, g.origin_max_mismatch)
                 if note == "origin_approx":
                     notes.append(note)
