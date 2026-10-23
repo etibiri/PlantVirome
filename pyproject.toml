@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "plantvirome"
-version = "0.1.0"
+version = "0.1.1"
 description = "Virus-agnostic RCA-Nanopore virome pipeline for plants"
 readme = "README.md"
 license = { text = "MIT" }
@@ -25,6 +25,9 @@ plantvirome = "plantvirome.cli:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+plantvirome = ["presets/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

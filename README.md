@@ -92,8 +92,9 @@ Without it the `species` step is skipped and nothing else changes.
 
 ### Configuration
 
-Start from `config/default.yaml`; presets: `config/begomovirus.yaml` (genome size range, 91 %
-species threshold, `TAATATTAC` origin), `config/slurm.yaml` (partition, resources per step).
+Start from `default.yaml`; presets: `begomovirus.yaml` (genome size range, 91 %
+species threshold, `TAATATTAC` origin), `slurm.yaml` (partition, resources per step). They ship
+with the package: `cp "$(plantvirome presets)"/default.yaml my.yaml` (source: `src/plantvirome/presets/`).
 Unknown keys are rejected. Validate with `plantvirome validate-config my.yaml`.
 
 | Section | Key parameters (default) |

@@ -8,7 +8,7 @@ from plantvirome.runner import ToolError, run
 
 
 def test_default_config_loads(tmp_path):
-    cfg = load_config("config/default.yaml")
+    cfg = load_config("src/plantvirome/presets/default.yaml")
     assert cfg.qc.min_length == 200
 
 
@@ -23,7 +23,7 @@ def test_run_missing_tool():
 
 
 def test_submit_dry_run_chain(tmp_path):
-    res = CliRunner().invoke(app, ["submit", "--config", "config/default.yaml",
+    res = CliRunner().invoke(app, ["submit", "--config", "src/plantvirome/presets/default.yaml",
                                    "--outdir", str(tmp_path), "--sample", "s1",
                                    "--sample", "s2", "--steps", "qc,diversity", "--dry-run"])
     assert res.exit_code == 0, res.output
@@ -39,7 +39,7 @@ def test_slurm_commands_match_cli():
 
     from plantvirome.config import COHORT_STEPS, STEPS
     from plantvirome.slurm import render
-    cfg = load_config("config/default.yaml")
+    cfg = load_config("src/plantvirome/presets/default.yaml")
     from pathlib import Path
     for step in STEPS:
         sample = None if step in COHORT_STEPS else "s1"
@@ -48,3 +48,13 @@ def test_slurm_commands_match_cli():
         # typer forces ANSI colours under GITHUB_ACTIONS, which splits option names
         helptext = re.sub(r"\x1b\[[0-9;]*m", "", CliRunner().invoke(app, [step, "--help"]).output)
         assert all(opt in helptext for opt in used), (step, used)
+
+
+def test_packaged_presets_validate():
+    from pathlib import Path
+
+    d = Path(CliRunner().invoke(app, ["presets"]).output.strip())
+    files = sorted(d.glob("*.yaml"))
+    assert [f.stem for f in files] == ["begomovirus", "default", "slurm"]
+    for f in files:
+        assert CliRunner().invoke(app, ["validate-config", str(f)]).output.strip() == "OK"

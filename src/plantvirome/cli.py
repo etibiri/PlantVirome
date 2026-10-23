@@ -37,6 +37,12 @@ def version() -> None:
     typer.echo(__version__)
 
 
+@app.command()
+def presets() -> None:
+    """Print the directory of the packaged example configs (default, begomovirus, slurm)."""
+    typer.echo(Path(__file__).parent / "presets")
+
+
 @app.command("validate-config")
 def validate_config(config: Path = typer.Argument(..., exists=True)) -> None:
     """Validate a YAML configuration file."""
