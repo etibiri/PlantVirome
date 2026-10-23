@@ -19,6 +19,7 @@ from .steps import rca as rca_step
 from .steps import satellite as satellite_step
 from .steps import species as species_step
 from .steps import qc as qc_step
+from .steps import report as report_step
 from .slurm import submit as slurm_submit
 from .slurm import write_scripts
 
@@ -160,6 +161,15 @@ def diversity(
     """Cohort step: vOTU table, alpha and beta diversity, PCoA."""
     cfg = load_config(config)
     diversity_step.run_diversity(cfg, outdir, sample or None, threads or cfg.threads, force)
+
+
+@app.command()
+def report(
+    outdir: Path = typer.Option(Path("results"), exists=True),
+    out: Path = typer.Option(None, help="Default: <outdir>/report.html"),
+) -> None:
+    """Self-contained HTML report: summary tables and figures of all samples in OUTDIR."""
+    typer.echo(report_step.run_report(outdir, out))
 
 
 @app.command()
