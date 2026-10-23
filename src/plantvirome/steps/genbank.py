@@ -12,7 +12,7 @@ import pyrodigal_gv
 
 from ..config import Config, GenBank
 from ..logging import event
-from ..runner import mark_done, step_done
+from ..runner import mark_done, run, step_done
 from .assemble import read_fasta
 
 COMP = str.maketrans("ACGTacgt", "TGCAtgca")
@@ -124,6 +124,23 @@ def _rows(path: Path, key: str) -> dict[str, dict]:
         return {r[key]: r for r in csv.DictReader(fh, delimiter="\t")}
 
 
+def run_checkv(contigs: Path, db: Path, out: Path, threads: int) -> dict[str, dict]:
+    """CheckV end_to_end on `contigs` -> contig -> its quality_summary row."""
+    if contigs.stat().st_size:
+        run(["checkv", "end_to_end", contigs, out / "checkv", "-d", db, "-t", threads])
+    return _rows(out / "checkv" / "quality_summary.tsv", "contig_id")
+
+
+def checkv_reasons(row: dict, max_contamination: float) -> list[str]:
+    """Review reasons from a CheckV row; completeness never blocks (see GenBank.checkv_db)."""
+    contamination = row.get("contamination", "NA")           # 'NA' when not determined
+    if contamination != "NA" and float(contamination or 0) > max_contamination:
+        return ["checkv_contamination"]
+    if int(row.get("host_genes") or 0) > int(row.get("viral_genes") or 0):
+        return ["checkv_host_genes"]
+    return []
+
+
 def run_genbank(cfg: Config, sampledir: Path, force: bool = False) -> None:
     out = sampledir / "genbank"
     if step_done(out) and not force:
@@ -142,6 +159,7 @@ def run_genbank(cfg: Config, sampledir: Path, force: bool = False) -> None:
     # contigs whose vOTU is also in a negative control (written by the diversity step)
     contam = _rows(sampledir.parent / "cohort" / "diversity" / "contamination.tsv", "contig")
 
+    cv = run_checkv(sampledir / "assemble" / "contigs.fasta", g.checkv_db, out, cfg.threads) if g.checkv_db else {}
     qc_rows, fsa, tbl, faa = [], [], [], []
     for contig, seq in seqs.items():
         seq = seq.upper()
@@ -181,6 +199,9 @@ def run_genbank(cfg: Config, sampledir: Path, force: bool = False) -> None:
             review.append("not_circular_partial_genome")
         if chim > g.max_chimeric_fraction:
             review.append("chimeric_reads_high")
+        c = cv.get(contig, {})
+        if c:
+            review += checkv_reasons(c, g.checkv_max_contamination)
         org, org_warn = organism(t, sp, cfg.species.taxon)
         if org_warn == "organism_unresolved":
             review.append(org_warn)
@@ -225,13 +246,14 @@ def run_genbank(cfg: Config, sampledir: Path, force: bool = False) -> None:
             faa += [f">{seqid}_orf{o['index']}\n{o['protein']}\n" for o in orfs]
         qc_rows.append([contig, seqid, len(seq), circ, f"{n_frac:.4f}", f"{depth:.1f}",
                         t.get("tier", "unclassified"), org, status, n_orfs,
-                        ",".join(reject + review + notes)])
+                        ",".join(reject + review + notes),
+                        c.get("checkv_quality", ""), c.get("completeness", ""), c.get("contamination", "")])
     (out / "submission.fsa").write_text("".join(fsa))
     (out / "features.tbl").write_text("".join(tbl))
     (out / "orfs.faa").write_text("".join(faa))
     with open(out / "contigs.qc.tsv", "w") as fh:
         fh.write("contig\tseqid\tlength\tcircular\tn_fraction\tmean_depth\ttier\torganism\t"
-                 "status\torfs\treasons\n")
+                 "status\torfs\treasons\tcheckv_quality\tcheckv_completeness\tcheckv_contamination\n")
         fh.writelines("\t".join(map(str, r)) + "\n" for r in qc_rows)
     event("genbank done", sample=sample, submit=len(fsa), total=len(qc_rows))
     mark_done(out)

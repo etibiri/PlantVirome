@@ -150,3 +150,12 @@ def test_organism_for_other_component_uses_nearest_reference():
     tax = {"name": "Begomovirus manihotisburkinafasoense", "rank": "species"}   # protein-level guess
     sp = {"call": "other_component", "species": "Begomovirus manihotis"}
     assert organism(tax, sp, "Begomovirus") == ("Begomovirus manihotis", "organism_from_nearest_component_reference")
+
+
+def test_checkv_reasons_never_block_on_completeness():
+    from plantvirome.steps.genbank import checkv_reasons
+    ok = {"contamination": "0.0", "host_genes": "0", "viral_genes": "2", "completeness": "50.1"}
+    assert checkv_reasons(ok, 10) == []
+    assert checkv_reasons({**ok, "contamination": "NA"}, 10) == []
+    assert checkv_reasons({**ok, "contamination": "25"}, 10) == ["checkv_contamination"]
+    assert checkv_reasons({**ok, "host_genes": "3"}, 10) == ["checkv_host_genes"]

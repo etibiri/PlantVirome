@@ -182,6 +182,11 @@ class GenBank(_Strict):
     # usable motif the contig starts where the reference starts.
     orient_by_reference: bool = False
     min_orf_aa: int = 60
+    # CheckV database directory: when set, CheckV runs on each sample's contigs. Contamination and
+    # host genes can send a contig to review; its completeness is informational only (it compares
+    # with reference genomes and underestimates small circular genomes such as begomovirus DNA-A/B).
+    checkv_db: Path | None = None
+    checkv_max_contamination: float = 10.0   # % above this -> review
     # Source modifiers written into FASTA deflines, e.g. {host: Manihot esculenta, country: ...}
     metadata: dict[str, str] = {}
     # Optional CSV with a `sample` column; its other columns override `metadata` per sample.

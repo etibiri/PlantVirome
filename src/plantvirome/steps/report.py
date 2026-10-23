@@ -130,6 +130,11 @@ def build(outdir: Path) -> str:
                + "<h3>Summary per sample</h3>" + table(
                    [[s, sum(per_sample[s].values())] + [per_sample[s][k] for k in ("submit", "review", "reject")]
                     for s in samples], ["sample", "contigs", "submit", "review", "reject"]))
+    if any(r.get("checkv_quality") for r in qc):
+        sec.append("<h3>CheckV quality</h3>" + hbars(top(Counter(r["checkv_quality"] for r in qc if r["checkv_quality"])), PALETTE[4])
+                   + "<p class=note>Informational: CheckV compares with reference genomes and underestimates the "
+                     "completeness of small circular genomes (e.g. begomovirus DNA-A/B). Only contamination "
+                     "and host genes affect the status.</p>")
     reasons = Counter(x for r in qc for x in r["reasons"].split(",") if x)
     sec.append("<h3>Most frequent QC reasons</h3>" + hbars(top(reasons), PALETTE[1]))
 
