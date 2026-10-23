@@ -113,7 +113,7 @@ def genome_map(seqid: str, length: int, orfs: list[dict]) -> str:
         a, b = (x1, x2) if fwd else (x2, x1)
         inner += (f'<polygon points="{a:.1f},{y} {b - tip:.1f},{y} {b:.1f},{y + 12} {b - tip:.1f},{y + 24} {a:.1f},{y + 24}" '
                   f'fill="{PALETTE[i % 8] if o["product"] else "#bbb"}" fill-opacity=".8"><title>{escape(o["product"] or "hypothetical protein")}</title></polygon>'
-                  (f'<text x="{(x1 + x2) / 2:.1f}" y="{y + 38}" text-anchor="middle" font-size="9">'
+                  + (f'<text x="{(x1 + x2) / 2:.1f}" y="{y + 38}" text-anchor="middle" font-size="9">'
                    f'{escape((o["product"] or "").split(" (")[0][:22])}</text>' if abs(x2 - x1) > 60 else ""))
     return svg(w, h, inner)
 

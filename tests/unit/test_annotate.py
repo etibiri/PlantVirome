@@ -59,6 +59,8 @@ def test_classify_genes_states_and_duplicates():
     r = classify_genes(prots, best, 100, 35.0)
     assert r == {"found": ["AV1"], "truncated": ["AC1"], "missing": ["AC2"]}
     assert gene_reasons({**r}) == ["missing_gene:AC2", "truncated_gene:AC1"]
+    core = classify_genes(prots, best, 100, 35.0, core={"rep"})              # only the core products count
+    assert core == {"found": [], "truncated": ["AC1"], "missing": []}
 
 
 def test_merge_unnamed_keeps_only_non_overlapping_gene_finder_orfs():

@@ -5,18 +5,20 @@ genomes (`refs.faa`, from `download-proteins`). Unlike a gene finder this keeps 
 which compact ssDNA genomes are full of. The reference record whose proteins are best recovered
 gives the expected gene set; each expected protein is `found` (subject cover >= FULL), `truncated`
 (frameshift or premature stop: Nanopore indels) or `missing`. Virus-agnostic: no gene list is built in.
-Proteins are identified by their normalised product name, because the gene tags of GenBank
+A protein is required only if at least half of the closest references (CLOSE) have it, so accessory
+ORFs that few relatives carry are not demanded. Proteins are identified by their normalised product name, because the gene tags of GenBank
 records are inconsistent. ORFs shorter than min_aa are never called; reference proteins shorter than expect_min_aa are not
 expected (small accessory ORFs such as AC4/AC5 are too variable to demand).
 """
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from ..logging import event
 from ..runner import run
 from .assemble import read_fasta
 
+CLOSE = 10      # closest references that define which proteins are required
 FULL = 0.8      # subject cover for a gene to count as complete
 COLS = ["qseqid", "sseqid", "pident", "length", "slen", "bitscore", "qstart", "sstart"]
 BASES = "TCAG"
@@ -66,14 +68,14 @@ def all_orfs(seq: str, min_aa: int) -> list[dict]:
 
 
 def classify_genes(ref_proteins: list[dict], best: dict[str, tuple[float, float]], min_aa: int,
-                   min_identity: float) -> dict[str, list[str]]:
+                   min_identity: float, core: set[str] | None = None) -> dict[str, list[str]]:
     """Expected proteins of one reference -> found / truncated / missing (by gene name).
     `best`: protein id -> (identity %, subject cover) of its best ORF hit. Proteins with the same
-    normalised product count once, in their best state."""
+    normalised product count once, in their best state. `core`: only these products are required."""
     rank = {"found": 0, "truncated": 1, "missing": 2}
     state: dict[str, tuple[str, str]] = {}
     for p in ref_proteins:
-        if p["aa"] < min_aa:
+        if p["aa"] < min_aa or (core is not None and p["key"] not in core):
             continue
         ident, cover = best.get(p["id"], (0.0, 0.0))
         s = "missing" if ident < min_identity else "found" if cover >= FULL else "truncated"
@@ -121,6 +123,13 @@ def annotate(contigs: dict[str, str], proteins: Path, work: Path, threads: int, 
             res = classify_genes(by_acc[acc], {k: v[:2] for k, v in best.items()}, expect_min_aa, min_identity)
             scored[acc] = (len(res["found"]), len(res["truncated"]), sum(v[2] for v in best.values()), res)
         ref = max(scored, key=lambda a: scored[a][:3], default="")
+        if ref:    # required = proteins that at least half of the closest references have
+            close = sorted(scored, key=lambda a: scored[a][:3], reverse=True)[:CLOSE]
+            n = Counter(k for a in close for k in {p["key"] for p in by_acc[a] if p["aa"] >= expect_min_aa})
+            core = {k for k, v in n.items() if v * 2 >= len(close)}
+            res = classify_genes(by_acc[ref], {k: v[:2] for k, v in per_acc[ref].items()}, expect_min_aa,
+                                 min_identity, core)
+            scored[ref] = (*scored[ref][:3], res)
         named = []
         for o in os:
             mine = [h for h in hs if h[0] == o["id"] and h[2] >= min_identity and h[3] >= min_cover]
