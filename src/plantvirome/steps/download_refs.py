@@ -51,6 +51,41 @@ def fasta_records(text: str) -> dict[str, str]:
     return {k: "".join(v) for k, v in recs.items()}
 
 
+def genbank_cds(text: str) -> list[tuple[str, str, str, str]]:
+    """(accession.version, gene, product, protein) of every CDS in GenBank flat-file text.
+    The gene falls back to the product when the record has no /gene."""
+    out = []
+    for rec in text.split("\n//\n"):
+        m = re.search(r"^VERSION\s+(\S+)", rec, re.M)
+        feats = rec.partition("\nFEATURES")[2].partition("\nORIGIN")[0]
+        for blk in re.split(r"\n {5}(?=\S)", feats)[1:]:
+            if not blk.startswith("CDS") or not m:
+                continue
+            q = {k: re.sub(r"\s+", "" if k == "translation" else " ", v).strip()
+                 for k, v in re.findall(r'/(\w+)="([^"]*)"', blk)}
+            if q.get("translation"):
+                out.append((m.group(1), q.get("gene", ""), q.get("product", ""), q["translation"]))
+    return out
+
+
+def run_download_proteins(refs_tsv: Path) -> Path:
+    """Write refs.faa (CDS proteins of every accession of refs.tsv) next to it, for `annotate`.
+    Headers: >ACC|gene|product_with_underscores."""
+    with open(refs_tsv) as fh:
+        acc = [line.split("\t")[0] for line in fh.read().splitlines()[1:]]
+    out = refs_tsv.with_name("refs.faa")
+    n = 0
+    with open(out, "w") as fa:
+        for i in range(0, len(acc), BATCH):
+            for a, gene, product, prot in genbank_cds(_get("efetch.fcgi", db="nuccore", rettype="gb",
+                                                          retmode="text", id=",".join(acc[i:i + BATCH]))):
+                name = re.sub(r"[|\s]+", "_", product)
+                fa.write(f">{a}|{re.sub(r'[|\s]+', '_', gene or product)}|{name}\n{prot}\n")
+                n += 1
+    event("reference proteins written", n=n, path=str(out))
+    return out
+
+
 def run_download_refs(taxon: str, outdir: Path, extra: dict[str, int | None] | None = None) -> Path:
     """`extra`: non-RefSeq accessions to add (e.g. isolates from INSDC) -> species taxid to
     label them with (None = the record's own organism, often a strain-level taxon)."""
@@ -95,4 +130,5 @@ def run_download_refs(taxon: str, outdir: Path, extra: dict[str, int | None] | N
     (outdir / "download.json").write_text(json.dumps(
         {"date": time.strftime("%Y-%m-%d"), "taxon": taxon, "query": term, "extra": list(extra or {}),
          "records": len(rows)}, indent=2))
+    run_download_proteins(outdir / "refs.tsv")
     return outdir / "refs.fasta"

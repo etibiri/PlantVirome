@@ -13,6 +13,7 @@ import pyrodigal_gv
 from ..config import Config, GenBank
 from ..logging import event
 from ..runner import mark_done, run, step_done
+from .annotate import annotate, gene_reasons, merge_unnamed
 from .assemble import read_fasta
 
 COMP = str.maketrans("ACGTacgt", "TGCAtgca")
@@ -82,7 +83,7 @@ def feature_table(seqid: str, orfs: list[dict]) -> str:
         high = f"{'>' if o['partial_end'] and plus else '<' if o['partial_end'] else ''}{o['end']}"
         a, b = (low, high) if plus else (high, low)
         lines += [f"{a}\t{b}\tgene", "\t\t\tgene\torf" + f"{o['index']}",
-                  f"{a}\t{b}\tCDS", "\t\t\tproduct\thypothetical protein"]
+                  f"{a}\t{b}\tCDS", f"\t\t\tproduct\t{o.get('product') or 'hypothetical protein'}"]
     return "\n".join(lines) + "\n"
 
 
@@ -160,7 +161,7 @@ def run_genbank(cfg: Config, sampledir: Path, force: bool = False) -> None:
     contam = _rows(sampledir.parent / "cohort" / "diversity" / "contamination.tsv", "contig")
 
     cv = run_checkv(sampledir / "assemble" / "contigs.fasta", g.checkv_db, out, cfg.threads) if g.checkv_db else {}
-    qc_rows, fsa, tbl, faa = [], [], [], []
+    qc_rows, fsa, tbl, faa, cands, ann_rows = [], [], [], [], [], []
     for contig, seq in seqs.items():
         seq = seq.upper()
         circ = info.get(contig, {}).get("circular") == "True"
@@ -232,28 +233,43 @@ def run_genbank(cfg: Config, sampledir: Path, force: bool = False) -> None:
                 elif note != "origin_ok":
                     review.append(note)
         status = "reject" if reject else "review" if review else "submit"
-        n_orfs = 0
         if status == "submit":
-            orfs = find_orfs(seq, g.min_orf_aa)
-            for i, o in enumerate(orfs, 1):
-                o["index"] = i
-            n_orfs = len(orfs)
             mods = {"organism": org, "moltype": "genomic", "molecule": "DNA",
                     "topology": "circular" if circ else "linear", **meta}
-            fsa.append(f">{seqid} " + " ".join(f"[{k}={v}]" for k, v in mods.items())
-                       + f"\n{seq}\n")
-            tbl.append(feature_table(seqid, orfs))
-            faa += [f">{seqid}_orf{o['index']}\n{o['protein']}\n" for o in orfs]
+            cands.append((len(qc_rows), seqid, seq, mods))
         qc_rows.append([contig, seqid, len(seq), circ, f"{n_frac:.4f}", f"{depth:.1f}",
-                        t.get("tier", "unclassified"), org, status, n_orfs,
+                        t.get("tier", "unclassified"), org, status, 0,
                         ",".join(reject + review + notes),
-                        c.get("checkv_quality", ""), c.get("completeness", ""), c.get("contamination", "")])
+                        c.get("checkv_quality", ""), c.get("completeness", ""), c.get("contamination", ""), ""])
+    ann = annotate({sid: seq for _, sid, seq, _ in cands}, g.protein_refs, out / "annotate", cfg.threads,
+                   g.min_orf_aa, expect_min_aa=g.expect_min_aa) if g.protein_refs and cands else {}
+    for row, seqid, seq, mods in cands:
+        orfs = find_orfs(seq, g.min_orf_aa)
+        if seqid in ann:
+            orfs = merge_unnamed(ann[seqid]["orfs"], orfs)
+            if gene_reasons(ann[seqid]):       # missing / truncated genes: a human decides
+                qc_rows[row][8] = "review"
+                qc_rows[row][10] = ",".join(filter(None, [qc_rows[row][10]] + gene_reasons(ann[seqid])))
+            qc_rows[row][14] = ann[seqid]["ref"]
+        for i, o in enumerate(orfs, 1):
+            o["index"] = i
+        qc_rows[row][9] = len(orfs)
+        if qc_rows[row][8] != "submit":
+            continue
+        fsa.append(f">{seqid} " + " ".join(f"[{k}={v}]" for k, v in mods.items()) + f"\n{seq}\n")
+        tbl.append(feature_table(seqid, orfs))
+        faa += [f">{seqid}_orf{o['index']}\n{o['protein']}\n" for o in orfs]
+        ann_rows += [[seqid, o["index"], o["begin"], o["end"], o["strand"], len(o["protein"]), o.get("product", ""),
+                      f"{o['identity']:.1f}" if "identity" in o else ""] for o in orfs]
     (out / "submission.fsa").write_text("".join(fsa))
     (out / "features.tbl").write_text("".join(tbl))
     (out / "orfs.faa").write_text("".join(faa))
+    with open(out / "annotation.tsv", "w") as fh:     # one row per ORF of the submitted contigs
+        fh.write("seqid\torf\tbegin\tend\tstrand\taa\tproduct\tidentity\n")
+        fh.writelines("\t".join(map(str, r)) + "\n" for r in ann_rows)
     with open(out / "contigs.qc.tsv", "w") as fh:
         fh.write("contig\tseqid\tlength\tcircular\tn_fraction\tmean_depth\ttier\torganism\t"
-                 "status\torfs\treasons\tcheckv_quality\tcheckv_completeness\tcheckv_contamination\n")
+                 "status\torfs\treasons\tcheckv_quality\tcheckv_completeness\tcheckv_contamination\tref_proteins\n")
         fh.writelines("\t".join(map(str, r)) + "\n" for r in qc_rows)
     event("genbank done", sample=sample, submit=len(fsa), total=len(qc_rows))
     mark_done(out)

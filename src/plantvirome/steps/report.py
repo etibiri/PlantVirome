@@ -100,6 +100,24 @@ def top(counter: Counter, n: int = 12) -> list[tuple[str, float]]:
     return [(k or "none", v) for k, v in counter.most_common(n)]
 
 
+def genome_map(seqid: str, length: int, orfs: list[dict]) -> str:
+    """One genome as a line with an arrow per ORF (forward above, reverse below), labelled by product."""
+    w, h = 760, 110
+    x = lambda p: 20 + p / length * (w - 40)
+    inner = f'<text x="20" y="12" font-weight="bold">{escape(seqid)} ({length} bp)</text><line x1="20" y1="55" x2="{w - 20}" y2="55" stroke="#888"/>'
+    for i, o in enumerate(orfs):
+        fwd = o["strand"] == "1"
+        y = 28 if fwd else 60
+        x1, x2 = x(int(o["begin"])), x(int(o["end"]))
+        tip = 6 if fwd else -6
+        a, b = (x1, x2) if fwd else (x2, x1)
+        inner += (f'<polygon points="{a:.1f},{y} {b - tip:.1f},{y} {b:.1f},{y + 12} {b - tip:.1f},{y + 24} {a:.1f},{y + 24}" '
+                  f'fill="{PALETTE[i % 8] if o["product"] else "#bbb"}" fill-opacity=".8"><title>{escape(o["product"] or "hypothetical protein")}</title></polygon>'
+                  (f'<text x="{(x1 + x2) / 2:.1f}" y="{y + 38}" text-anchor="middle" font-size="9">'
+                   f'{escape((o["product"] or "").split(" (")[0][:22])}</text>' if abs(x2 - x1) > 60 else ""))
+    return svg(w, h, inner)
+
+
 def build(outdir: Path) -> str:
     samples = sorted(p.parent.parent.name for p in outdir.glob("*/genbank/contigs.qc.tsv"))
     qc, species, ab = [], [], []
@@ -135,6 +153,18 @@ def build(outdir: Path) -> str:
                    + "<p class=note>Informational: CheckV compares with reference genomes and underestimates the "
                      "completeness of small circular genomes (e.g. begomovirus DNA-A/B). Only contamination "
                      "and host genes affect the status.</p>")
+    ann = [{"sample": s, **r} for s in samples for r in read_tsv(outdir / s / "genbank" / "annotation.tsv")]
+    if any(r["product"] for r in ann):
+        length = {r["seqid"]: int(r["length"]) for r in qc}
+        gene_issues = Counter(x.split(":")[0] + ":" + x.split(":")[1] for r in qc for x in r["reasons"].split(",")
+                              if x.startswith(("missing_gene", "truncated_gene")))
+        sec.append("<h2>Genome annotation</h2><h3>Proteins named by homology (submitted contigs)</h3>"
+                   + hbars(top(Counter(r["product"] or "hypothetical protein" for r in ann), 15), PALETTE[5])
+                   + "<h3>Missing or truncated genes vs the closest reference</h3>"
+                   + (hbars(top(gene_issues), PALETTE[2]) if gene_issues else "<p class=note>None.</p>")
+                   + "<h3>Genome maps (first 6 submitted contigs)</h3>"
+                   + "".join(genome_map(sid, length.get(sid, 1), [r for r in ann if r["seqid"] == sid])
+                             for sid in list(dict.fromkeys(r["seqid"] for r in ann))[:6]))
     reasons = Counter(x for r in qc for x in r["reasons"].split(",") if x)
     sec.append("<h3>Most frequent QC reasons</h3>" + hbars(top(reasons), PALETTE[1]))
 

@@ -19,6 +19,7 @@ from .steps import rca as rca_step
 from .steps import satellite as satellite_step
 from .steps import species as species_step
 from .steps import qc as qc_step
+from .steps import annotate as annotate_step
 from .steps import report as report_step
 from .slurm import submit as slurm_submit
 from .slurm import write_scripts
@@ -273,6 +274,27 @@ def satellite(
     """Detect satellite DNAs (alpha-, betasatellites ...) among the contigs."""
     cfg = load_config(config)
     satellite_step.run_satellite(cfg, outdir / sample, threads or cfg.threads, force)
+
+
+@app.command("download-proteins")
+def download_proteins(
+    refs: Path = typer.Argument(..., exists=True, help="refs.tsv written by download-refs."),
+) -> None:
+    """Write refs.faa (CDS proteins of the reference genomes) next to refs.tsv, for `annotate`."""
+    typer.echo(download_refs_step.run_download_proteins(refs))
+
+
+@app.command()
+def annotate(
+    fasta: Path = typer.Argument(..., exists=True, help="Genome contigs (any FASTA)."),
+    proteins: Path = typer.Option(..., exists=True, help="refs.faa from download-refs / download-proteins."),
+    outdir: Path = typer.Option(Path("annotation")),
+    threads: int = typer.Option(4),
+    min_aa: int = typer.Option(60, help="Shortest ORF called."),
+    expect_min_aa: int = typer.Option(100, help="Reference proteins shorter than this are not required."),
+) -> None:
+    """Name genes by homology to reference proteins and check each genome for missing/truncated genes."""
+    annotate_step.run_annotate(fasta, proteins, outdir, threads, min_aa, expect_min_aa)
 
 
 @app.command("download-refs")

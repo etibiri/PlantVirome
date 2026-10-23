@@ -185,6 +185,10 @@ class GenBank(_Strict):
     # CheckV database directory: when set, CheckV runs on each sample's contigs. Contamination and
     # host genes can send a contig to review; its completeness is informational only (it compares
     # with reference genomes and underestimates small circular genomes such as begomovirus DNA-A/B).
+    # refs.faa (download-proteins): names the ORFs after the reference proteins instead of "hypothetical
+    # protein" and sends genomes with missing or truncated genes (vs the closest reference) to review.
+    protein_refs: Path | None = None
+    expect_min_aa: int = 100               # reference proteins shorter than this are not required
     checkv_db: Path | None = None
     checkv_max_contamination: float = 10.0   # % above this -> review
     # Source modifiers written into FASTA deflines, e.g. {host: Manihot esculenta, country: ...}
