@@ -8,8 +8,14 @@ version = "0.1.0"
 description = "Virus-agnostic RCA-Nanopore virome pipeline for plants"
 readme = "README.md"
 license = { text = "MIT" }
+authors = [{ name = "Ezechiel Tibiri" }]
 requires-python = ">=3.10"
 dependencies = ["typer>=0.12", "pydantic>=2.5", "pyyaml>=6", "numpy>=1.26", "scipy>=1.11", "pyrodigal-gv>=0.3"]
+
+[project.urls]
+Homepage = "https://github.com/etibiri/PlantVirome"
+Repository = "https://github.com/etibiri/PlantVirome"
+Issues = "https://github.com/etibiri/PlantVirome/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
